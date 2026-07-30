@@ -1,0 +1,14 @@
+.Rproj.user
+.Rhistory
+.RData
+.DS_Store
+renv/library/
+renv/local/
+renv/staging/
+_targets/
+.firecrawl/
+__pycache__/
+*.pyc
+.venv/
+data/raw/
+ExperimentHub/
