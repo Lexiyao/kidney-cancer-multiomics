@@ -1,0 +1,255 @@
+name: heavy-pull
+
+# One-off HEAVY_PULL run (design spec section 2 + section 8).
+#
+# This is deliberately NOT part of ci.yml: CI only lints, tests fixtures and
+# renders from cache. This workflow does the thing CI must never do — pull the
+# real curatedTCGAData KIRC snapshot (20160128) and materialise Module 1 — so
+# that the cohort sizes in the spec are verified against the actual data rather
+# than assumed, and so a COMPLETE renv.lock can be generated from a machine
+# where every Import is installed.
+#
+# Manual dispatch only. Expect 30-90 minutes.
+
+on:
+  workflow_dispatch:
+  # One-shot trigger: push the dedicated `run-heavy-pull` branch to fire this
+  # once. Scoped to that branch so ordinary work never starts a 90-minute job.
+  push:
+    branches: [run-heavy-pull]
+
+jobs:
+  heavy-pull:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    container:
+      image: bioconductor/bioconductor_docker:RELEASE_3_23
+    defaults:
+      run:
+        shell: bash
+    env:
+      HEAVY_PULL: "true"
+      RETICULATE_PYTHON: /usr/bin/python3
+      BASILISK_EXTERNAL_DIR: /opt/basilisk
+      BASILISK_USE_SYSTEM_DIR: "1"
+      # Do not let the repo .Rprofile bootstrap renv into an empty project
+      # library; we install into the system library and snapshot from there.
+      RENV_CONFIG_AUTOLOADER_ENABLED: "false"
+      # Keep the ExperimentHub cache on the workspace volume (more free space).
+      EXPERIMENT_HUB_CACHE: /__w/experimenthub
+      ANNOTATION_HUB_CACHE: /__w/annotationhub
+
+    steps:
+      - name: Mark workspace safe for git
+        run: git config --global --add safe.directory '*'
+
+      - uses: actions/checkout@v4
+
+      - name: Report runner resources
+        run: |
+          echo "--- disk ---"; df -h /__w / || true
+          echo "--- memory ---"; free -h || true
+          echo "--- R ---"; R --version | head -1
+
+      - name: Install R dependencies (all DESCRIPTION Imports)
+        run: |
+          set -euxo pipefail
+          R -q -e '
+            # Must cover every DESCRIPTION Import, or renv::snapshot(type =
+            # "explicit") silently emits an incomplete lockfile (the first run
+            # omitted MOFA2 for exactly this reason).
+            pkgs <- c("targets", "tarchetypes", "MultiAssayExperiment",
+                      "curatedTCGAData", "MOFA2", "SNFtool", "glmnet",
+                      "randomForestSRC", "survival", "reticulate", "basilisk",
+                      "httr", "quarto", "plotly", "yaml", "minfi",
+                      "IlluminaHumanMethylation450kanno.ilmn12.hg19",
+                      "RaggedExperiment", "SummarizedExperiment",
+                      "renv", "testthat", "lintr")
+            BiocManager::install(pkgs, update = FALSE, ask = FALSE, Ncpus = 4)
+            missing <- pkgs[!vapply(pkgs, requireNamespace, logical(1), quietly = TRUE)]
+            if (length(missing)) stop("failed to install: ", paste(missing, collapse = ", "))
+            cat("all", length(pkgs), "packages installed\n")
+          '
+
+      # THE DELIVERABLE: real cohort sizes from the actual 2016 snapshot.
+      # Run 30642823359 (2026-07-31) established these against the snapshot and
+      # the spec/constants were corrected to match, replacing figures that had
+      # been taken from the live GDC API. This step now doubles as a REGRESSION
+      # CHECK: each count is printed against the verified value, so any drift in
+      # ExperimentHub or in our own harmonisation shows up immediately.
+      - name: Cohort census on the real KIRC snapshot
+        run: |
+          R -q -e '
+            source("R/constants.R"); source("R/functions_utils.R")
+            source("R/functions_ingest.R"); source("R/functions_preprocess.R")
+
+            t0 <- Sys.time()
+            mae <- fn_load_mae()
+            cat("### load time:", round(difftime(Sys.time(), t0, units = "mins"), 1), "min\n")
+            cat("### experiment names:\n"); print(names(mae))
+
+            qc <- fn_qc_mae(mae)
+            ids <- function(stub) fn_harmonise_ids(
+              colnames(SummarizedExperiment::assay(fn_experiment(qc, stub))))
+
+            rna    <- ids("RNASeq2GeneNorm")
+            m27    <- ids("Methylation_methyl27")
+            m450   <- ids("Methylation_methyl450")
+            cnv    <- ids("GISTIC_ThresholdedByGene")
+            mutex  <- fn_experiment(qc, "Mutation")
+            mut    <- fn_harmonise_ids(colnames(mutex))
+            methyl <- union(m27, m450)
+
+            cat("\n### PRIMARY-TUMOUR CASE COUNTS (curatedTCGAData 2.0.1, snapshot 20160128)\n")
+            cat(sprintf("%-34s %d\n", "RNA-seq (RSEM norm)",   length(unique(rna))))
+            cat(sprintf("%-34s %d\n", "Methylation HM27",      length(unique(m27))))
+            cat(sprintf("%-34s %d\n", "Methylation HM450",     length(unique(m450))))
+            cat(sprintf("%-34s %d\n", "Methylation (union)",   length(unique(methyl))))
+            cat(sprintf("%-34s %d\n", "HM27 n HM450 (overlap)",length(intersect(m27, m450))))
+            cat(sprintf("%-34s %d\n", "CNV (GISTIC thresh.)",  length(unique(cnv))))
+            cat(sprintf("%-34s %d\n", "Somatic mutation",      length(unique(mut))))
+            cat(sprintf("%-34s %d\n", "colData rows (all cases)",
+                        nrow(MultiAssayExperiment::colData(mae))))
+
+            cat("\n### COMPLETE-CASE INTERSECTIONS\n")
+            i3  <- Reduce(intersect, list(rna, methyl, cnv))
+            i4  <- Reduce(intersect, list(rna, methyl, cnv, mut))
+            i4b <- Reduce(intersect, list(rna, m450, cnv, mut))
+            chk <- function(label, got, want) cat(sprintf(
+              "%-34s %d   (verified %d)%s\n", label, got, want,
+              if (identical(as.integer(got), as.integer(want))) "" else "   <-- DRIFT"))
+            chk("RNA + Methyl(any) + CNV",      length(i3),  COHORT_SIZES$rna_methyl_cnv)
+            chk("  + Mutation",                 length(i4),  COHORT_SIZES$rna_methyl_cnv_mutation)
+            chk("RNA + HM450 + CNV + Mutation", length(i4b), 241L)
+
+            cat("\n### COHORT CONTRACT\n")
+            n <- length(fn_intersect_cases(list(rna, methyl, cnv)))
+            cat("fn_intersect_cases n =", n, "\n")
+            cat("within [COHORT_MIN, COHORT_MAX]:", n >= COHORT_MIN && n <= COHORT_MAX, "\n")
+
+            dir.create("artifacts", showWarnings = FALSE)
+            saveRDS(list(rna = rna, m27 = m27, m450 = m450, cnv = cnv, mut = mut,
+                         i3 = i3, i4 = i4, i4b = i4b),
+                    "artifacts/cohort_census.rds")
+            writeLines(c(
+              paste("rna", length(unique(rna))),
+              paste("m27", length(unique(m27))),
+              paste("m450", length(unique(m450))),
+              paste("methyl_union", length(unique(methyl))),
+              paste("cnv", length(unique(cnv))),
+              paste("mutation", length(unique(mut))),
+              paste("rna_methyl_cnv", length(i3)),
+              paste("rna_methyl_cnv_mut", length(i4)),
+              paste("rna_hm450_cnv_mut", length(i4b))
+            ), "artifacts/cohort_census.txt")
+          '
+
+      # Measures the OS event count that sizes Phase 4's survival model, so the
+      # predictor budget comes from data rather than assumption. EPV_CAP (10) is
+      # EVENTS PER VARIABLE, not a predictor count: the cap is
+      # floor(observed_events / EPV_CAP). Run 30708943504 (2026-08-01) measured
+      # 173 events on the 524-case main cohort (cap 17; 148 events / cap 14 at a
+      # 5-year horizon). Re-running this step re-checks those figures.
+      - name: Survival event census (drives the EPV cap)
+        continue-on-error: true
+        run: |
+          R -q -e '
+            source("R/constants.R"); source("R/functions_utils.R")
+            source("R/functions_ingest.R")
+
+            mae <- fn_load_mae()
+            cd  <- as.data.frame(MultiAssayExperiment::colData(mae))
+            cat("### survival-related colData columns:\n")
+            print(grep("vital|death|followup|follow_up|days_to|survival",
+                       colnames(cd), ignore.case = TRUE, value = TRUE))
+
+            census <- readRDS("artifacts/cohort_census.rds")
+            pick <- function(...) { for (n in c(...)) if (n %in% colnames(cd)) return(cd[[n]]); NULL }
+            vital  <- pick("vital_status")
+            ddeath <- suppressWarnings(as.numeric(pick("days_to_death")))
+            dlast  <- suppressWarnings(as.numeric(pick("days_to_last_followup",
+                                                       "days_to_last_follow_up")))
+            if (is.null(vital)) stop("no vital_status column; inspect the printout above")
+
+            cat("\n### vital_status raw values:\n"); print(table(vital, useNA = "ifany"))
+            v     <- tolower(as.character(vital))
+            event <- as.integer(v %in% c("dead", "deceased", "1"))
+            time  <- ifelse(event == 1L, ddeath, dlast)
+
+            ids <- fn_harmonise_ids(rownames(cd))
+            report <- function(label, keep) {
+              e <- event[keep]; t <- time[keep]
+              ok <- !is.na(e) & !is.na(t) & t > 0
+              cat(sprintf("%-26s n=%-4d usable=%-4d events=%-4d (%.1f%%) median FU=%.0f d\n",
+                          label, sum(keep), sum(ok), sum(e[ok]),
+                          100 * sum(e[ok]) / max(sum(ok), 1),
+                          stats::median(t[ok], na.rm = TRUE)))
+              cat(sprintf("%-26s EPV-10 predictor cap = %d\n", "", sum(e[ok]) %/% 10L))
+            }
+            cat("\n### OS EVENTS BY COHORT (EPV cap = events %/% 10)\n")
+            report("all cases",            rep(TRUE, nrow(cd)))
+            report("RNA+Methyl+CNV (524)", ids %in% census$i3)
+            report("  + Mutation (413)",   ids %in% census$i4)
+
+            cat("\n### 5-YEAR (1825 d) RESTRICTED EVENTS, main cohort\n")
+            keep <- ids %in% census$i3
+            e <- event[keep]; t <- time[keep]
+            ok <- !is.na(e) & !is.na(t) & t > 0
+            e5 <- as.integer(e[ok] == 1L & t[ok] <= 1825)
+            cat("events within 5y:", sum(e5), "| EPV-10 cap =", sum(e5) %/% 10L, "\n")
+
+            writeLines(capture.output({
+              cat("main_cohort_n", sum(ids %in% census$i3), "\n")
+              cat("main_cohort_events", sum(e[ok]), "\n")
+              cat("main_cohort_events_5y", sum(e5), "\n")
+            }), "artifacts/survival_census.txt")
+          '
+
+      - name: Materialise Module 1 (tar_make with HEAVY_PULL=true)
+        id: tarmake
+        continue-on-error: true
+        run: |
+          R -q -e '
+            targets::tar_make()
+            cat("\n### BUILT TARGETS\n"); print(targets::tar_objects())
+            cat("\n### cohort_n =", targets::tar_read(cohort_n), "\n")
+            for (nm in c("rna_mat", "methyl_mat", "cnv_mat")) {
+              d <- dim(targets::tar_read_raw(nm))
+              cat(sprintf("%-12s %d x %d\n", nm, d[1], d[2]))
+            }
+            ma <- targets::tar_read(mut_annot)
+            cat("mut_annot   ", nrow(ma), "x", ncol(ma), "| cols:",
+                paste(colnames(ma), collapse = ", "), "\n")
+            cat("sample_id is character:", is.character(ma$sample_id), "\n")
+            cat("gene cols integer 0/1:",
+                all(vapply(ma[-1], function(x) is.integer(x) && all(x %in% c(0L, 1L)), logical(1))), "\n")
+          '
+
+      - name: Generate complete renv.lock from the installed library
+        if: always()
+        continue-on-error: true
+        run: |
+          R -q -e '
+            renv::snapshot(project = ".", library = .libPaths(),
+                           type = "explicit", prompt = FALSE, force = TRUE)
+            lock <- jsonlite::fromJSON("renv.lock")
+            cat("### renv.lock packages:", length(lock$Packages), "\n")
+            cat(paste(names(lock$Packages), collapse = ", "), "\n")
+          '
+          mkdir -p artifacts && cp renv.lock artifacts/renv.lock
+
+      - name: Collect targets metadata
+        if: always()
+        continue-on-error: true
+        run: |
+          mkdir -p artifacts
+          cp -r _targets/meta artifacts/targets-meta 2>/dev/null || echo "no _targets/meta"
+          du -sh _targets 2>/dev/null || true
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: heavy-pull-results
+          path: artifacts/
+          if-no-files-found: warn

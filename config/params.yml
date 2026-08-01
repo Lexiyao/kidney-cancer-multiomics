@@ -1,0 +1,19 @@
+# Run parameters and feature flags for the KIRC multi-omics pipeline.
+
+# HEAVY_PULL gates every large download / long compute:
+#   ExperimentHub HM450 HDF5, MOFA2 training, scanpy single-cell.
+# CI and unit tests run with heavy_pull: false (fixtures only).
+heavy_pull: false
+
+cohort:
+  # Main analysis cohort: RNA + Methylation(HM27+HM450 merged) + CNV.
+  # NEVER hard-code HM450 alone (silently halves the methylation cohort).
+  methylation_platforms: [HM27, HM450]
+  require_mutation: false      # mutation is annotation on its n=417 subset
+
+snapshot:
+  date: "20160128"             # curatedTCGAData 1.34.0 frozen snapshot, hg19
+  genome: hg19
+
+fixtures:
+  use_fixtures: true           # tests consume tests/fixtures/*, never full pull

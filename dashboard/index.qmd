@@ -1,0 +1,17 @@
+---
+title: "Reproducible TCGA-KIRC Multi-Omics"
+---
+
+## Motivation
+
+A portfolio project demonstrating reproducible somatic multi-omics integration
+on public kidney-cancer data (TCGA-KIRC ccRCC), built as a reproducible
+analytical pipeline with an interactive dashboard.
+
+## Scope note
+
+The research core is a frozen 2016 snapshot (`curatedTCGAData` 1.34.0). CI does
+not run the full pipeline; it renders this site from cached results. See the
+[dashboard](dashboard.qmd).
+
+_Results and the skills-mapping table are populated in Module 5._

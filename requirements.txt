@@ -1,0 +1,10 @@
+# MOFA2 SystemRequirements (called via reticulate; use_basilisk = FALSE)
+mofapy2==0.7.2
+numpy==1.26.4
+pandas==2.2.2
+h5py==3.11.0
+scipy==1.13.1
+# BAP1-from-expression classifier (Module 4)
+scikit-learn==1.5.1
+# Single-cell (Module 6, non-blocking)
+scanpy==1.10.2

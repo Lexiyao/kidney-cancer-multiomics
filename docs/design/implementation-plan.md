@@ -11,10 +11,11 @@
 ## Global Constraints
 
 - Pin exact versions everywhere (renv.lock / requirements.txt): curatedTCGAData 1.34.0, MultiAssayExperiment 1.38.0, MOFA2 1.22.0, SNFtool 2.3.1, glmnet 5.0, randomForestSRC 3.6.2, survival 3.8-9, all on Bioconductor 3.23.
-- Cohort reality: the multi-omics n is NOT ~530. Main analysis cohort = RNA + Methylation(HM27+HM450 merged on common CpGs) + CNV ≈ 528; the fully-intersected RNA+Methyl+CNV+Mutation set is 370 and RNA+HM450+CNV+Mutation is only 267. Never hard-code '450k' as the methylation platform (that silently halves the cohort).
-- Model-complexity cap: at n≈270 the ccRCC 5-year OS event count is ~90–110; at events-per-variable (EPV) ≈ 10 the survival model is capped at ~10 predictors. Module 4 is a LOW-DIMENSIONAL model on factors/subtypes + a few clinical variables ONLY — never genome-wide feature selection.
+- Cohort reality: the multi-omics n is NOT ~530. Main analysis cohort = RNA + Methylation(HM27+HM450 merged on common CpGs) + CNV = 524; the fully-intersected RNA+Methyl+CNV+Mutation set is 413 and RNA+HM450+CNV+Mutation is only 241. Never hard-code '450k' as the methylation platform (that silently halves the cohort). Per-modality primary-tumour counts: RNA-seq 533, HM27 219, HM450 319 (union 535, overlap 3), CNV 528, mutation 417; `colData` carries 536 cases.
+- Cohort-figure provenance: every count above is MEASURED from the frozen 2016 `curatedTCGAData` 2.0.1 snapshot (20160128) by GitHub Actions run 30642823359 on 2026-07-31, using this repo's own `fn_load_mae`/`fn_qc_mae`/`fn_harmonise_ids` on primary-tumour cases — NOT from the live GDC API. The two differ materially (e.g. the 2016 legacy MAF covers 417 cases, today's masked-somatic-mutation MAF only ~374), so never substitute a live-API number for a snapshot number. The cohort census was RE-VERIFIED with zero drift by run 30708943504 on 2026-08-01 (RNA+Methyl(any)+CNV = 524, +Mutation = 413, RNA+HM450+CNV+Mutation = 241).
+- Model-complexity cap: the survival model runs on the MAIN cohort (n = 524), not on the mutation-intersected subset. Its overall-survival event count is now MEASURED: **173 OS events** among the 522 usable main-cohort cases (33.1%), median follow-up 1188 d → an EPV-10 budget of **17 predictors**; restricted to a 5-year horizon (1825 d) the main cohort has **148 events** → cap **14**. (Reference: all 536 `colData` cases → 534 usable, 177 events, cap 17; the +Mutation subset n = 413 → cap 14.) Provenance: GitHub Actions run 30708943504, 2026-08-01, from `colData(mae)` on the same frozen 20160128 snapshot via this repo's `fn_load_mae`/`fn_qc_mae`/`fn_harmonise_ids`; event = `vital_status` ∈ {dead, deceased, 1}, time = `days_to_death` if event else `days_to_last_followup`. The measurement LICENSES the cap; it does not oblige the design to spend it — Module 4 stays a LOW-DIMENSIONAL model on factors/subtypes + a few clinical variables ONLY (EPV cap = 10 applied to the observed event count at fit time; **5 predictors actually wired**, comfortably under both 17 and 14). Never genome-wide feature selection.
 - Do NOT apply DESeq2::vst to KIRC_RNASeq2GeneNorm: it is RSEM upper-quartile normalised Level-3 data, not raw counts. Apply log2(x+1) + variable-gene filtering and label it exactly 'log-transformed normalised expression'. Do not rename the alternative STAR-count route into the research core.
-- Mutation is annotation, NOT a MOFA2 view: it is an external label for factor interpretation (which factor tracks BAP1/PBRM1 status) on the n=374 subset, reported with stratification. CNV enters as a GISTIC gene-level thresholded (continuous/ordinal, Gaussian) view.
+- Mutation is annotation, NOT a MOFA2 view: it is an external label for factor interpretation (which factor tracks BAP1/PBRM1 status) on the n=417 subset, reported with stratification. CNV enters as a GISTIC gene-level thresholded (continuous/ordinal, Gaussian) view.
 - iClusterPlus is CUT. MOFA2 is the main integration method; SNFtool is a cheap sensitivity analysis; 'consensus clustering' is reframed as a two-method (MOFA vs SNF) concordance check.
 - No tautological classifier: never derive subtype labels from omics and predict them from the same omics. The Python classifier predicts BAP1 mutation status from expression (non-circular). Subtype→survival must use a held-out split or nested CV with optimism reported.
 - CI does NOT run the full pipeline: CI job = lint + unit tests on subsampled fixtures + render the dashboard from cached _targets / release-asset results. Heavy re-pulls (HM450 HDF5, MOFA2 training, scanpy) are flag-guarded and run locally once; a green CI badge must never imply full reproduction.
@@ -30,25 +31,26 @@
 - `R/constants.R` — All magic values: published ccRCC mutation-frequency ranges, driver gene panel (VHL/PBRM1/SETD2/BAP1/MTOR/KDM5C), EPV cap, variable-gene/CpG counts, snapshot date 20160128, cohort-size thresholds.
 - `R/functions_utils.R` — Module 1 shared deterministic helpers: fn_harmonise_ids, fn_align_samples, fn_intersect_cases — the unit-tested utility layer.
 - `R/functions_ingest.R` — Module 1 ingest: fn_load_mae (curatedTCGAData 1.34.0 → MultiAssayExperiment), sample-ID harmonisation, QC, versioned RDS cache.
-- `R/functions_preprocess.R` — Module 1 preprocess: fn_log2_normalise_rna, fn_beta_to_mvalue, fn_merge_methyl_platforms (HM27+HM450 common CpGs), fn_prep_cnv, fn_top_variable — aligned n≈528 matrices.
+- `R/functions_preprocess.R` — Module 1 preprocess: fn_log2_normalise_rna, fn_beta_to_mvalue, fn_merge_methyl_platforms (HM27+HM450 common CpGs), fn_prep_cnv, fn_top_variable — aligned n=524 matrices.
 - `R/functions_integrate.R` — Module 2 integration: fn_run_mofa (MOFA2 1.22.0), fn_run_snf (SNFtool 2.3.1), fn_extract_factors, fn_variance_explained, fn_assign_subtypes, fn_cluster_concordance, fn_annotate_mutation (BAP1/PBRM1 factor labels).
 - `R/functions_sanity.R` — Module 3 positive-control logic: fn_check_mutation_freq, fn_check_bap1_survival, fn_check_methyl_strata (m1–m4), fn_check_ccab_signature — returns structured pass/fail objects consumed by testthat.
 - `R/functions_survival.R` — Module 4 survival: fn_fit_cox, fn_fit_penalised_cox (glmnet 5.0), fn_fit_rsf (randomForestSRC 3.6.2) on factors/subtypes+clinical with held-out/nested-CV split and optimism reporting.
 - `R/functions_model_eval.R` — Module 4 evaluation reusing model-evaluation-from-scratch: fn_cindex, fn_calibration — C-index + calibration for survival models.
 - `R/functions_purity.R` — Module 6 confound guard: fn_estimate_purity (ESTIMATE on bulk expression) and fn_subtype_purity_test to check whether bulk subtypes are a purity/immune proxy before single-cell mapping.
 - `R/functions_gdc_live.R` — Module 5 live panel: fn_query_gdc (GDC REST API via httr for current TCGA-KIRC counts/clinical distribution) feeding the cron-refreshed dashboard panel; independent of the frozen research core.
-- `python/bap1_classifier.py` — Module 4 non-circular classifier: trains scikit-learn model predicting BAP1 mutation status (labels from n=374 subset) from expression features; reports CV AUROC + held-out AUROC.
+- `python/bap1_classifier.py` — Module 4 non-circular classifier: trains scikit-learn model predicting BAP1 mutation status (labels from n=417 subset) from expression features; reports CV AUROC + held-out AUROC.
 - `python/singlecell_qc.py` — Module 6 scanpy QC/clustering: reads GSE159115 10x H5, QC filtering, normalisation, clustering.
 - `python/singlecell_annotate.py` — Module 6: cell-type annotation and mapping of bulk subtype signatures onto single-cell programs (gated on the purity check).
 - `Dockerfile` — Reproducible container: R+Bioconductor 3.23, explicit Python + mofapy2, RETICULATE_PYTHON set, basilisk forced to external system env so no conda downloads at runtime.
 - `.dockerignore` — Excludes data caches, _targets store, and renv library from the Docker build context.
 - `requirements.txt` — Pinned Python dependencies: mofapy2, numpy, pandas, h5py, scipy, scikit-learn, scanpy.
-- `renv.lock` — Pinned R dependency lockfile at the exact versions in globalConstraints (Bioconductor 3.23 snapshot).
+- `renv.lock` — Pinned R dependency lockfile at the exact versions in globalConstraints (Bioconductor 3.23 snapshot). STATUS: complete and measured — 218 packages, R 4.6.1, Bioconductor 3.23, generated by `renv::snapshot()` inside the container (GitHub Actions run 30708943504, 2026-08-01), including MOFA2 1.22.0, glmnet 5.0, curatedTCGAData 1.34.0, minfi 1.58.0. Not hand-authored, not partial.
 - `renv/activate.R` — renv bootstrap sourced by .Rprofile to activate the project library.
 - `renv/settings.json` — renv project settings (snapshot type, Bioconductor repo).
 - `.Rprofile` — Sources renv/activate.R and sets project options (RETICULATE_PYTHON, basilisk external dir).
 - `DESCRIPTION` — Declares R package dependencies so renv can resolve them; project metadata.
 - `config/params.yml` — Run parameters and flags: HEAVY_PULL flag guarding ExperimentHub/HM450 downloads, cohort-selection options, fixture-vs-full toggles.
+- `.lintr` — Lint config (single source of truth for CI + local): snake_case/SNAKE_CASE names, 100-col lines, `object_usage_linter` disabled because this is a `source()`-based targets project, not a package.
 - `.github/workflows/ci.yml` — CI: lint + testthat + pytest on subsampled fixtures + render Quarto dashboard from cached _targets/release assets; does NOT run the full pipeline.
 - `.github/workflows/pages.yml` — Builds and deploys the rendered Quarto site to GitHub Pages (lexiyao.github.io/kidney-cancer-multiomics).
 - `.github/workflows/cron.yml` — Weekly cron: refresh live-GDC panel + dependency/environment drift detection + container rebuild; never touches frozen research data.
@@ -94,10 +96,10 @@
 ## Module Interfaces (contract)
 
 - **Module 0 — Scaffold** — Consumes: Nothing (bootstrap). Establishes the environment all later modules assume. | Produces: A runnable _targets.R skeleton, renv.lock + requirements.txt + Dockerfile with the MOFA2 basilisk/reticulate resolution (RETICULATE_PYTHON, BASILISK_EXTERNAL_DIR), R/constants.R, config/params.yml (HEAVY_PULL flag), .github/workflows/{ci,pages,cron}.yml (hello-world), and a Quarto→Pages deploy. Contract: every downstream target is defined in this _targets.R and every heavy pull is gated by the HEAVY_PULL flag.
-- **Module 1 — Ingest + preprocess** — Consumes: Scaffold environment + HEAVY_PULL flag; fn_* helpers in R/functions_utils.R. | Produces: targets: mae_raw (MultiAssayExperiment 1.38.0 from curatedTCGAData 1.34.0, snapshot 20160128), mae_qc, and aligned n≈528 matrices rna_mat (log2(x+1) normalised expression — NOT vst), methyl_mat (M-values, HM27+HM450 merged on common CpGs, SNP/sex probes dropped), cnv_mat (GISTIC gene-level thresholded), plus mut_annot (BAP1/PBRM1/… status on the n=374 subset). All matrices share harmonised sample IDs on the common cohort.
+- **Module 1 — Ingest + preprocess** — Consumes: Scaffold environment + HEAVY_PULL flag; fn_* helpers in R/functions_utils.R. | Produces: targets: mae_raw (MultiAssayExperiment 1.38.0 from curatedTCGAData 1.34.0, snapshot 20160128), mae_qc, and aligned n=524 matrices rna_mat (log2(x+1) normalised expression — NOT vst), methyl_mat (M-values, HM27+HM450 merged on common CpGs, SNP/sex probes dropped), cnv_mat (GISTIC gene-level thresholded), plus mut_annot (BAP1/PBRM1/… status on the n=417 subset; 413 of those cases are inside the 524-case main cohort). All matrices share harmonised sample IDs on the common cohort.
 - **Module 2 — Integrate** — Consumes: rna_mat, methyl_mat, cnv_mat (the three MOFA views) and mut_annot (annotation only) from Module 1. | Produces: targets: mofa_model (MOFA2 1.22.0), mofa_factors (factor matrix, samples×factors), mofa_varexp (variance-explained per omics per factor), subtypes_mofa (subtype assignments), snf_clusters (SNFtool 2.3.1 sensitivity), concordance (MOFA-vs-SNF cluster agreement), and factor-to-mutation annotations (which factor tracks BAP1/PBRM1). Mutation is never a view; iClusterPlus is absent.
 - **Module 3 — Sanity** — Consumes: mut_annot, subtypes_mofa, methyl_mat, rna_mat, and survival/clinical from Module 1; mofa_factors from Module 2. | Produces: target sanity_results (structured pass/fail) surfaced as real testthat assertions in tests/testthat/test-sanity.R: VHL/PBRM1/SETD2/BAP1 mutation frequencies within published ccRCC ranges, BAP1-mutant worse OS, recovery of KIRC methylation strata m1–m4, ccA/ccB signature separation. This is the credibility anchor and is built early.
-- **Module 4 — Model** — Consumes: mofa_factors + subtypes_mofa (Module 2) + clinical variables (Module 1) for survival; rna_mat + mut_annot BAP1 labels (n=374 subset) for the classifier. | Produces: targets: cox_fit / penalised-Cox (glmnet 5.0) / RSF (randomForestSRC 3.6.2) on ≤~10 predictors (EPV cap) with held-out/nested-CV split, survival_metrics (C-index + calibration via reused fn_cindex/fn_calibration), and bap1_auroc (scikit-learn BAP1-from-expression CV + held-out AUROC via python/bap1_classifier.py). Subtype→survival optimism is controlled by the split; the classifier is non-circular.
+- **Module 4 — Model** — Consumes: mofa_factors + subtypes_mofa (Module 2) + clinical variables (Module 1) for survival; rna_mat + mut_annot BAP1 labels (n=417 subset, 413 inside the 524-case cohort) for the classifier. | Produces: targets: cox_fit / penalised-Cox (glmnet 5.0) / RSF (randomForestSRC 3.6.2) on the 524-case main cohort, with the predictor count capped at `floor(observed_OS_events / EPV_CAP)` computed at fit time (5 predictors wired), with held-out/nested-CV split, survival_metrics (C-index + calibration via reused fn_cindex/fn_calibration), and bap1_auroc (scikit-learn BAP1-from-expression CV + held-out AUROC via python/bap1_classifier.py). Subtype→survival optimism is controlled by the split; the classifier is non-circular.
 - **Module 5 — Dashboard + README** — Consumes: mofa_factors, mofa_varexp, subtypes_mofa, concordance (Module 2); survival_metrics, bap1_auroc (Module 4); sanity_results (Module 3); gdc_live_panel from fn_query_gdc (independent live source). | Produces: target dashboard_site: the rendered Quarto Dashboard + Plotly pages (dashboard/*.qmd) with subtypes, survival curves, factor loadings, gene views, and the live-GDC panel, deployed to GitHub Pages; plus README.md (skills-mapping table, one-command run with runtime+hardware, limitations) and docs/talking-points.md. CI renders this from the frozen _targets/release cache.
 - **Module 6 — Single-cell (v1.1, non-blocking)** — Consumes: subtypes_mofa + rna_mat (bulk subtype signatures) from Module 2/1, and the ESTIMATE/purity result from R/functions_purity.R (fn_subtype_purity_test) as a mandatory gate; GSE159115 10x H5 (flag-guarded pull). | Produces: targets: purity_check (whether subtypes are a purity/immune proxy), sc_object (scanpy QC/clustered/annotated), and a bulk→single-cell subtype-signature mapping (re-framed if purity_check fails), surfaced on dashboard/singlecell.qmd. Runs on a separate branch and cannot block release of Modules 0–5.
 
@@ -246,7 +248,7 @@ Expected output: empty (clean tree).
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: constants `SNAPSHOT_DATE`, `GENOME_BUILD`, `DRIVER_GENES`, `MUTATION_FREQ_RANGES`, `METHYL_PLATFORMS`, `EPV_CAP`, `TOP_VARIABLE_GENES`, `TOP_VARIABLE_CPGS`, `COHORT_SIZES` (all Module 3/4 consume these); the testthat entrypoint + `helper-fixtures.R` that auto-sources `R/constants.R` and any `R/functions_*.R`, exposing `FIXTURE_DIR`.
+- Produces: constants `SNAPSHOT_DATE`, `GENOME_BUILD`, `DRIVER_GENES`, `MUTATION_FREQ_RANGES`, `METHYL_PLATFORMS`, `EPV_CAP`, `COHORT_SIZES` (all Module 3/4 consume these); the testthat entrypoint + `helper-fixtures.R` that auto-sources `R/constants.R` and any `R/functions_*.R`, exposing `FIXTURE_DIR`.
 
 - [ ] **Step 1: Write the failing constants smoke test in `tests/testthat/test-utils.R`.**
 ```r
@@ -326,18 +328,28 @@ MUTATION_FREQ_RANGES <- list(
 # --- Methylation platforms (merged on common CpGs; never HM450 alone) ---
 METHYL_PLATFORMS <- c("HM27", "HM450")
 
-# --- Model-complexity cap: EPV at n~270 (~90-110 OS events), spec section 2 ---
+# --- Model-complexity cap: events-per-variable, spec section 2 ---
+# The survival model runs on the MAIN cohort (n=524). Its OS event count is
+# MEASURED: 173 events / 522 usable cases (33.1%), median follow-up 1188 d
+# (GitHub Actions run 30708943504, 2026-08-01) -> floor(173/10) = 17 predictors
+# allowed; 148 events at a 5-year horizon -> 14. The budget is still derived at
+# fit time from the observed events (floor(events / EPV_CAP)) rather than
+# hard-coded, and the design deliberately spends only 5 of it.
+# Never genome-wide feature selection.
 EPV_CAP <- 10L
 
 # --- Feature-selection sizes ---
-TOP_VARIABLE_GENES <- 5000L
-TOP_VARIABLE_CPGS <- 5000L
+# Feature-selection sizes live in the Module 1 block (N_TOP_GENES / N_TOP_CPGS,
+# Task 1.1) — the single source of truth used by _targets.R.
 
 # --- Cohort-size expectations at case level (design spec section 2) ---
+# MEASURED on the frozen curatedTCGAData 2.0.1 snapshot 20160128
+# (GitHub Actions run 30642823359, 2026-07-31), primary tumours only.
+# These are snapshot numbers, NOT live-GDC numbers — the two differ.
 COHORT_SIZES <- list(
-  rna_methyl_cnv = 528L,
-  rna_methyl_cnv_mutation = 370L,
-  mutation_subset = 374L
+  rna_methyl_cnv = 524L,
+  rna_methyl_cnv_mutation = 413L,
+  mutation_subset = 417L
 )
 ```
 
@@ -361,9 +373,11 @@ git commit -q -m "test: seed constants and testthat harness"
 - Create: `DESCRIPTION`, `renv/settings.json`, `renv.lock` (generated), `renv/activate.R` (generated), `.Rprofile`
 - Test: lockfile version-pin assertion
 
+**Lockfile status (measured, run 30708943504, 2026-08-01):** `renv.lock` is a COMPLETE lockfile generated by `renv::snapshot()` inside `bioconductor/bioconductor_docker:RELEASE_3_23` — **218 packages**, R **4.6.1**, Bioconductor **3.23**, including MOFA2 1.22.0, glmnet 5.0, curatedTCGAData 1.34.0 and minfi 1.58.0. It is no longer hand-authored, partial, or deferred; the steps below document how it was produced and how it is re-verified.
+
 **Interfaces:**
 - Consumes: nothing.
-- Produces: pinned R library at Bioconductor 3.23 (`curatedTCGAData` 1.34.0, `MultiAssayExperiment` 1.38.0, `MOFA2` 1.22.0, `SNFtool` 2.3.1, `glmnet` 4.1-8, `randomForestSRC` 3.6.2, `survival` 3.8-9); `.Rprofile` that sets `options(basilisk.useSystemDir = TRUE)` and honours `RETICULATE_PYTHON` — the R-side half of the MOFA2 conflict resolution consumed by Module 2's `fn_run_mofa`.
+- Produces: pinned R library at Bioconductor 3.23 (`curatedTCGAData` 1.34.0, `MultiAssayExperiment` 1.38.0, `MOFA2` 1.22.0, `SNFtool` 2.3.1, `glmnet` 5.0, `randomForestSRC` 3.6.2, `survival` 3.8-9); `.Rprofile` that sets `options(basilisk.useSystemDir = TRUE)` and honours `RETICULATE_PYTHON` — the R-side half of the MOFA2 conflict resolution consumed by Module 2's `fn_run_mofa`.
 
 - [ ] **Step 1: Write `DESCRIPTION` (renv reads it for explicit snapshots).**
 ```
@@ -427,7 +441,7 @@ Rscript -e 'renv::install(c(
   "bioc::curatedTCGAData@1.34.0",
   "bioc::MOFA2@1.22.0",
   "SNFtool@2.3.1",
-  "glmnet@4.1-8",
+  "glmnet@5.0",
   "randomForestSRC@3.6.2",
   "survival@3.8-9",
   "targets", "tarchetypes", "reticulate", "basilisk",
@@ -435,7 +449,7 @@ Rscript -e 'renv::install(c(
 ))'
 Rscript -e 'renv::snapshot(prompt = FALSE)'
 ```
-Expected: `renv.lock` written; snapshot lists the packages above at the requested versions.
+Expected: `renv.lock` written; snapshot lists the packages above at the requested versions. Measured outcome (run 30708943504, in-container): a complete lock of **218 packages** at R 4.6.1 / Bioconductor 3.23, with MOFA2 1.22.0, glmnet 5.0, curatedTCGAData 1.34.0 and minfi 1.58.0 all recorded.
 
 - [ ] **Step 5: Write `.Rprofile` (R-side basilisk/reticulate resolution, spec §5).**
 ```r
@@ -462,7 +476,7 @@ Rscript -e 'lf <- renv::lockfile_read("renv.lock")$Packages;
     lf[["curatedTCGAData"]]$Version == "1.34.0",
     lf[["MultiAssayExperiment"]]$Version == "1.38.0",
     lf[["SNFtool"]]$Version == "2.3.1",
-    lf[["glmnet"]]$Version == "4.1-8"
+    lf[["glmnet"]]$Version == "5.0"
   );
   cat("lockfile pins OK\n")'
 ```
@@ -538,7 +552,7 @@ cohort:
   # Main analysis cohort: RNA + Methylation(HM27+HM450 merged) + CNV.
   # NEVER hard-code HM450 alone (silently halves the methylation cohort).
   methylation_platforms: [HM27, HM450]
-  require_mutation: false      # mutation is annotation on its n=374 subset
+  require_mutation: false      # mutation is annotation on its n=417 subset
 
 snapshot:
   date: "20160128"             # curatedTCGAData 1.34.0 frozen snapshot, hg19
@@ -790,7 +804,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Pin mofapy2 + MOFA2 SystemRequirements into the system Python.
 COPY requirements.txt /tmp/requirements.txt
-RUN pip3 install --no-cache-dir --break-system-packages -r /tmp/requirements.txt
+RUN pip3 install --no-cache-dir --break-system-packages --ignore-installed -r /tmp/requirements.txt
 
 # --- MOFA2 basilisk/reticulate resolution (design spec section 5) ---
 # Point reticulate at the system Python and force basilisk to an external
@@ -870,11 +884,14 @@ jobs:
         with:
           r-version: "4.5"
       - uses: r-lib/actions/setup-renv@v2
-      - name: Lint R (allow UPPER_SNAKE constants, 100-col lines)
+      # Lint rules live in .lintr (single source of truth, shared with local runs).
+      # object_usage_linter is disabled there: this is a targets/source() project,
+      # not a package, so constants in R/constants.R and helpers in
+      # R/functions_utils.R are invisible to per-file static analysis and every
+      # cross-file reference would be a false positive.
+      - name: Lint R (config from .lintr)
         run: |
-          Rscript -e 'l <- lintr::lint_dir("R", linters = lintr::linters_with_defaults(
-            object_name_linter = lintr::object_name_linter(c("snake_case", "SNAKE_CASE", "symbols")),
-            line_length_linter = lintr::line_length_linter(100L)));
+          Rscript -e 'l <- lintr::lint_dir("R");
             if (length(l) > 0) { print(l); quit(status = 1) }'
       - name: Run testthat on fixtures (no full pipeline)
         run: Rscript tests/testthat.R
@@ -900,16 +917,13 @@ jobs:
 ```bash
 cd /Users/yaozixi/Desktop/CV/kidney-cancer-multiomics
 Rscript -e 'yaml::read_yaml(".github/workflows/ci.yml"); cat("ci.yml valid\n")'
-Rscript -e 'l <- lintr::lint_dir("R", linters = lintr::linters_with_defaults(
-  object_name_linter = lintr::object_name_linter(c("snake_case", "SNAKE_CASE", "symbols")),
-  line_length_linter = lintr::line_length_linter(100L)));
-  cat("R lints:", length(l), "\n")'
+Rscript -e 'l <- lintr::lint_dir("R"); cat("R lints:", length(l), "\n")'
 ```
 Expected: `ci.yml valid` and `R lints: 0`.
 
 - [ ] **Step 3: Commit.**
 ```bash
-git add .github/workflows/ci.yml
+git add .lintr .github/workflows/ci.yml
 git commit -q -m "ci: add lint + fixture-test job (no full pipeline)"
 ```
 
@@ -1132,7 +1146,7 @@ Expected: `cron.yml valid`.
 
 - Methylation = HM27+HM450 merged on common CpGs; never HM450 alone.
 - RNA = `log2(x+1)` on RSEM-normalised values; never `DESeq2::vst`.
-- Mutation is annotation on the n=374 subset, never a MOFA view.
+- Mutation is annotation on the n=417 subset, never a MOFA view.
 - Survival model is low-dimensional (EPV cap = 10); BAP1 classifier is
   non-circular (expression → BAP1 status).
 - MOFA2 runs with `run_mofa(use_basilisk = FALSE)` against `RETICULATE_PYTHON`.
@@ -1155,14 +1169,14 @@ Expected: `architecture doc OK`.
 - `Rscript -e 'targets::tar_make()'` completes `scaffold_env_check`, and `_targets.R` defines the `config` + `HEAVY_PULL` globals downstream modules parse against.
 - `docker build` succeeds and `reticulate::import("mofapy2")` resolves via `/usr/bin/python3` with no conda download.
 - `quarto render dashboard` produces `dashboard/_site/index.html`.
-- `renv.lock` pins MOFA2 1.22.0 / curatedTCGAData 1.34.0 / MultiAssayExperiment 1.38.0 / SNFtool 2.3.1 / glmnet 4.1-8.
+- `renv.lock` pins MOFA2 1.22.0 / curatedTCGAData 1.34.0 / MultiAssayExperiment 1.38.0 / SNFtool 2.3.1 / glmnet 5.0. VERIFIED: the committed lock is a complete `renv::snapshot()` product — 218 packages, R 4.6.1, Bioconductor 3.23 (run 30708943504, 2026-08-01), also covering minfi 1.58.0.
 - All three workflows (`ci`, `pages`, `cron`) parse as valid YAML.
 
 ---
 
 ## Phase 1: Ingest + preprocess
 
-This phase turns the frozen `curatedTCGAData` 1.34.0 KIRC snapshot (20160128, hg19) into four sample-aligned, MOFA2-ready matrices on the **~528-case** RNA ∩ Methylation(HM27∪HM450) ∩ CNV cohort, plus a mutation-status annotation on its `n=374` subset. Every deterministic helper is unit-tested on synthetic/subsampled fixtures (TDD); the pipeline wiring is validated by a `tar_make()` run that reaches the targets and asserts the recorded cohort size. All new work assumes the Module 0 scaffold (`_targets.R`, `R/constants.R` with `DRIVER_GENES`/`SNAPSHOT_DATE`, `config/params.yml` with the `HEAVY_PULL` flag, `renv`, `DESCRIPTION`, the shared `tests/testthat/helper-fixtures.R` that sources `R/constants.R` + all `R/functions_*.R` and defines `FIXTURE_DIR`, `tests/testthat.R`) already exists. Phase 1 also **adds Bioconductor dependencies** to `DESCRIPTION`/`renv.lock` (`minfi`, `IlluminaHumanMethylation450kanno.ilmn12.hg19`, `RaggedExperiment`, `SummarizedExperiment`) — see Task 1.1 — so the `HEAVY_PULL` run resolves under `renv::restore()` in Docker/CI.
+This phase turns the frozen `curatedTCGAData` 1.34.0 KIRC snapshot (20160128, hg19) into four sample-aligned, MOFA2-ready matrices on the **524-case** RNA ∩ Methylation(HM27∪HM450) ∩ CNV cohort (measured on the snapshot, see Global Constraints), plus a mutation-status annotation on its `n=417` subset. Every deterministic helper is unit-tested on synthetic/subsampled fixtures (TDD); the pipeline wiring is validated by a `tar_make()` run that reaches the targets and asserts the recorded cohort size. All new work assumes the Module 0 scaffold (`_targets.R`, `R/constants.R` with `DRIVER_GENES`/`SNAPSHOT_DATE`, `config/params.yml` with the `HEAVY_PULL` flag, `renv`, `DESCRIPTION`, the shared `tests/testthat/helper-fixtures.R` that sources `R/constants.R` + all `R/functions_*.R` and defines `FIXTURE_DIR`, `tests/testthat.R`) already exists. Phase 1 also **adds Bioconductor dependencies** to `DESCRIPTION`/`renv.lock` (`minfi`, `IlluminaHumanMethylation450kanno.ilmn12.hg19`, `RaggedExperiment`, `SummarizedExperiment`) — see Task 1.1 — so the `HEAVY_PULL` run resolves under `renv::restore()` in Docker/CI.
 
 ---
 
@@ -1198,7 +1212,7 @@ SEX_CHROMOSOMES     <- c("chrX", "chrY")         # dropped from methylation
 MVALUE_CLAMP_EPS    <- 1e-3                       # bound beta into [eps, 1-eps] before logit
 N_TOP_GENES         <- 5000L                     # top-variable RNA genes (Gaussian view)
 N_TOP_CPGS          <- 5000L                     # top-variable merged CpGs (Gaussian view)
-COHORT_MIN          <- 520L                      # RNA ∩ Methyl(any) ∩ CNV lower bound (~528)
+COHORT_MIN          <- 520L                      # RNA ∩ Methyl(any) ∩ CNV lower bound (measured 524)
 COHORT_MAX          <- 535L                      # ... upper bound
 SILENT_CLASSES      <- c(                        # variant classes treated as non-driver events
   "Silent", "Intron", "IGR", "RNA",
@@ -1448,10 +1462,12 @@ fn_build_synthetic_mae <- function(seed = 1L) {
 
   cpgs27  <- paste0("cg", sprintf("%08d", 1:60))
   cpgs450 <- paste0("cg", sprintf("%08d", 31:120))     # overlap cg31..cg60 with 27k
-  m27  <- matrix(runif(length(cpgs27)  * (length(cols) - 2)), nrow = length(cpgs27),
-                 dimnames = list(cpgs27,  c(tumour[1:20], normal)))
-  m450 <- matrix(runif(length(cpgs450) * (length(cols) - 4)), nrow = length(cpgs450),
-                 dimnames = list(cpgs450, c(tumour[5:24])))
+  m27_cols  <- c(tumour[1:20], normal)               # HM27 covers patients 1-20 + normals
+  m450_cols <- tumour[5:24]                          # HM450 overlaps HM27 on patients 5-20
+  m27  <- matrix(runif(length(cpgs27)  * length(m27_cols)),  nrow = length(cpgs27),
+                 dimnames = list(cpgs27,  m27_cols))
+  m450 <- matrix(runif(length(cpgs450) * length(m450_cols)), nrow = length(cpgs450),
+                 dimnames = list(cpgs450, m450_cols))
 
   cnv_genes <- rna_genes
   cnv <- matrix(sample(-2:2, length(cnv_genes) * length(cols), replace = TRUE),
@@ -1923,7 +1939,7 @@ fn_top_variable <- function(mat, n_top) {
 
 ---
 
-### Task 1.13 — `fn_extract_mutation_status` (BAP1/PBRM1/… annotation data.frame, n=374 subset)
+### Task 1.13 — `fn_extract_mutation_status` (BAP1/PBRM1/… annotation data.frame, n=417 subset)
 
 **Files:**
 - Modify: `R/functions_ingest.R`
@@ -2003,7 +2019,7 @@ fn_mutation_status_ragged <- function(mut, genes) {
 #' Extract per-patient non-silent driver-mutation status (annotation only).
 #'
 #' Mutation is never a MOFA view: this is an external label for factor
-#' interpretation (which factor tracks BAP1/PBRM1) on the n=374 subset.
+#' interpretation (which factor tracks BAP1/PBRM1) on the n=417 subset.
 #'
 #' @param mae MultiAssayExperiment containing a "Mutation" experiment.
 #' @param genes driver genes to report.
@@ -2092,7 +2108,7 @@ fn_load_methyl_annotation <- function() {
     fn_harmonise_ids(colnames(cnv_raw))
   ))),
 
-  # "correct n recorded" — enforce the ~528 cohort contract (spec section 2)
+  # "correct n recorded" — enforce the 524-case cohort contract (spec section 2)
   tar_target(cohort_n, {
     n <- length(common_ids)
     stopifnot(n >= COHORT_MIN, n <= COHORT_MAX)
@@ -2127,18 +2143,30 @@ fn_load_methyl_annotation <- function() {
   `HEAVY_PULL=true Rscript -e 'library(targets); n <- tar_read(cohort_n); r <- tar_read(rna_mat); m <- tar_read(methyl_mat); v <- tar_read(cnv_mat); ma <- tar_read(mut_annot); cat("cohort_n =", n, "\n"); stopifnot(identical(colnames(r), colnames(m)), identical(colnames(r), colnames(v))); cat("sample order aligned across RNA/Methyl/CNV\n"); stopifnot(is.data.frame(ma), "sample_id" %in% names(ma), all(c("BAP1","PBRM1") %in% names(ma))); cat("mut_annot is a data.frame with sample_id + gene columns\n")'`
   Expected output:
   ```
-  cohort_n = 528
+  cohort_n = 524
   sample order aligned across RNA/Methyl/CNV
   mut_annot is a data.frame with sample_id + gene columns
   ```
-  (Any value in 520–535 is acceptable; the spec's target is ~528. If `cohort_n` errors, `common_ids` is off — inspect `tar_read(common_ids)` length before proceeding.)
+  (Any value in 520–535 is acceptable; the measured value on the 20160128 snapshot is 524. If `cohort_n` errors, `common_ids` is off — inspect `tar_read(common_ids)` length before proceeding.)
 - [ ] **Step 6: Run the full R unit suite to confirm no regressions:** `Rscript -e 'testthat::test_dir("tests/testthat")'`
   Expected: `[ FAIL 0 | WARN 0 | SKIP 0 | PASS 17 ]`
 - [ ] **Step 7: Commit:** `git add _targets.R R/functions_preprocess.R && git commit -m "feat: wire module 1 ingest/preprocess targets with cohort-size assertion"`
 
 ---
 
-**Phase 1 exit criteria:** `rna_mat` (log2 normalised expression, NOT vst), `methyl_mat` (M-values, HM27∪HM450 merged on common CpGs, SNP/sex probes dropped), `cnv_mat` (GISTIC thresholded), and `mut_annot` are materialised in the `_targets` store on a single harmonised sample order; `cohort_n` records the real cohort size (~528) and fails the build if it drifts outside `[COHORT_MIN, COHORT_MAX]`. `mut_annot` is the **canonical annotation shape** — a `data.frame` with a character `sample_id` column plus one integer `0/1` column per driver gene (n=374 subset), aggregated from `Hugo_Symbol` on the real `RaggedExperiment` — so Module 2 `fn_annotate_mutation` (merge on `sample_id`), Module 3 `fn_check_mutation_freq`/`fn_check_bap1_survival` (`mut_annot$sample_id`, `mut_annot[[gene]]`), and Module 4 (`match(common, mut_annot$sample_id)`) all consume it without a shape adapter. The four view matrices plus `mut_annot` are the exact inputs Module 2 (`fn_run_mofa` on `rna_mat`/`methyl_mat`/`cnv_mat`, `fn_annotate_mutation` on `mut_annot`) consumes. The Bioconductor packages this phase relies on (`minfi`, `IlluminaHumanMethylation450kanno.ilmn12.hg19`, `RaggedExperiment`, `SummarizedExperiment`) are recorded in `DESCRIPTION` Imports and `renv.lock` (Task 1.1), so `renv::restore()` reproduces the `HEAVY_PULL` run in Docker/CI.
+**Phase 1 exit criteria:** `rna_mat` (log2 normalised expression, NOT vst), `methyl_mat` (M-values, HM27∪HM450 merged on common CpGs, SNP/sex probes dropped), `cnv_mat` (GISTIC thresholded), and `mut_annot` are materialised in the `_targets` store on a single harmonised sample order; `cohort_n` records the real cohort size (measured 524 on snapshot 20160128) and fails the build if it drifts outside `[COHORT_MIN, COHORT_MAX]`. `mut_annot` is the **canonical annotation shape** — a `data.frame` with a character `sample_id` column plus one integer `0/1` column per driver gene (n=417 subset), aggregated from `Hugo_Symbol` on the real `RaggedExperiment` — so Module 2 `fn_annotate_mutation` (merge on `sample_id`), Module 3 `fn_check_mutation_freq`/`fn_check_bap1_survival` (`mut_annot$sample_id`, `mut_annot[[gene]]`), and Module 4 (`match(common, mut_annot$sample_id)`) all consume it without a shape adapter. The four view matrices plus `mut_annot` are the exact inputs Module 2 (`fn_run_mofa` on `rna_mat`/`methyl_mat`/`cnv_mat`, `fn_annotate_mutation` on `mut_annot`) consumes. The Bioconductor packages this phase relies on (`minfi`, `IlluminaHumanMethylation450kanno.ilmn12.hg19`, `RaggedExperiment`, `SummarizedExperiment`) are recorded in `DESCRIPTION` Imports and `renv.lock` (Task 1.1), so `renv::restore()` reproduces the `HEAVY_PULL` run in Docker/CI.
+
+**Phase 1 exit criteria — STATUS: VERIFIED MATERIALISED on real data** (no longer deferred to a future `HEAVY_PULL` run). GitHub Actions run 30708943504, 2026-08-01, inside `bioconductor/bioconductor_docker:RELEASE_3_23`, ran `tar_make` with `HEAVY_PULL=true` against the frozen curatedTCGAData 2.0.1 KIRC snapshot 20160128 and built every Module-1 target:
+
+| Target | Measured |
+|---|---|
+| `cohort_n` | 524 |
+| `rna_mat` | 5000 × 524 |
+| `methyl_mat` | 5000 × 524 |
+| `cnv_mat` | 24776 × 524 |
+| `mut_annot` | 417 × 7 — `sample_id`, `VHL`, `PBRM1`, `SETD2`, `BAP1`, `MTOR`, `KDM5C` |
+
+`sample_id` is `character` = TRUE and every gene column is `integer` 0/1 = TRUE, so the canonical `mut_annot` contract now holds on REAL data, not just on synthetic fixtures. The `fn_load_methyl_annotation` attach fix is CONFIRMED working — `methyl_anno` built successfully in this run, having errored in the previous one. (Modules 2–4 remain unrun: MOFA2 integration has not been executed and no survival model has been fitted.)
 
 ---
 
@@ -2610,7 +2638,7 @@ git commit -m "feat: two-method MOFA-vs-SNF concordance via adjusted Rand index"
 - Test: `tests/testthat/test-integrate.R`
 
 **Interfaces:**
-- Consumes: `mofa_factors` (samples × factors matrix); `mut_annot` — a `data.frame`, rownames = sample IDs on the n=374 subset, columns = driver genes with 0/1 mutation status (Module 1); `DRIVER_GENES` (`R/constants.R`).
+- Consumes: `mofa_factors` (samples × factors matrix); `mut_annot` — a `data.frame`, rownames = sample IDs on the n=417 subset, columns = driver genes with 0/1 mutation status (Module 1); `DRIVER_GENES` (`R/constants.R`).
 - Produces: `fn_annotate_mutation(factor_matrix, mut_annot, genes = DRIVER_GENES)` → `data.frame` with columns `gene, factor, p_value, median_wt, median_mut, q_value`, ordered by `p_value`. Mutation is annotation only; it is never fed into MOFA. Answers "which factor tracks BAP1/PBRM1 status?"
 
 - [ ] **Step 1: Add the failing test (synthetic: Factor2 tracks BAP1).**
@@ -2877,7 +2905,7 @@ git commit -m "feat: add ccRCC sanity-check constants (published ranges, gene pa
 - Modify: `tests/testthat/helper-fixtures.R`, `tests/testthat/test-sanity.R`
 
 **Interfaces:**
-- Consumes: `DRIVER_GENE_PANEL`, `PUBLISHED_MUT_FREQ_RANGES` (Task 3.1); `mut_annot` — a `data.frame` with column `sample_id` (character) plus one logical column per driver gene (`VHL`, `PBRM1`, `SETD2`, `BAP1`, …), `n≈374` (Module 2).
+- Consumes: `DRIVER_GENE_PANEL`, `PUBLISHED_MUT_FREQ_RANGES` (Task 3.1); `mut_annot` — a `data.frame` with column `sample_id` (character) plus one logical column per driver gene (`VHL`, `PBRM1`, `SETD2`, `BAP1`, …), `n=417` (Module 2).
 - Produces: `fn_check_mutation_freq(mut_annot, gene_panel = DRIVER_GENE_PANEL, ranges = PUBLISHED_MUT_FREQ_RANGES)` → `list(label = chr, per_gene = data.frame(gene, observed, low, high, pass), pass = logical)`.
 
 - [ ] **Step 1: Create the function stub and wire the test helper.** Create `R/functions_sanity.R`:
@@ -3503,6 +3531,8 @@ I have enough context. The findings are self-contained. Producing the corrected 
 
 This phase fits the low-dimensional survival models (Cox / penalised Cox / RSF) on MOFA factors + subtypes + a handful of clinical variables under a hard EPV cap, scores them with a reused from-scratch C-index and calibration, and trains the non-circular Python BAP1-from-expression classifier. Every predictive claim is anchored to a held-out split so optimism is reported rather than hidden.
 
+The survival models run on the **main 524-case cohort** (not the mutation-intersected subset). The OS event count on that cohort is now **MEASURED — 173 events among 522 usable cases (33.1%), median follow-up 1188 d** (GitHub Actions run 30708943504, 2026-08-01, from `colData` on the frozen 20160128 snapshot; event = `vital_status` ∈ {dead, deceased, 1}, time = `days_to_death` if event else `days_to_last_followup`). At `EPV_CAP = 10` that licenses **17 predictors**; restricted to the 5-year horizon (1825 d) the cohort has **148 events**, licensing **14**. The budget is still not hard-coded: `fn_max_predictors` derives it at fit time as `floor(observed_events / EPV_CAP)` and `fn_fit_cox` throws if the requested predictor set exceeds it — the measurement licenses the cap, it does not oblige the design to spend it. The wired predictor set stays at **5 variables** (comfortably under both 17 and 14) and genome-wide feature selection is never permitted. The BAP1 classifier uses the n=417 mutation subset (413 cases inside the main cohort). NOTE: no survival model has been fitted yet — only the event census is done.
+
 Assumes Modules 0–2 exist: `R/constants.R` already defines `EPV_CAP <- 10L` and the driver panel; `_targets.R` sources `R/functions_*.R` and already produces `mae_qc`, `rna_mat`, `mut_annot`, `mofa_factors`, `subtypes_mofa`. All test-runs below invoke functions from the global env so no package build is needed.
 
 ---
@@ -3797,7 +3827,11 @@ Assumes Modules 0–2 exist: `R/constants.R` already defines `EPV_CAP <- 10L` an
 
   fn_max_predictors <- function(n_events, epv_cap = EPV_CAP) {
     # Events-per-variable cap: at EPV~10 the model is limited to
-    # floor(events / EPV) predictors (spec §2, load-bearing).
+    # floor(events / EPV) predictors (spec §2, load-bearing). `n_events` is
+    # the OS event count MEASURED on the fitted cohort (main cohort n=524):
+    # 173 events -> 17 predictors allowed (148 at the 5-year horizon -> 14).
+    # It is still computed here rather than hard-coded, so the budget stays
+    # honest if the cohort or the filtering changes; the design spends only 5.
     as.integer(floor(n_events / epv_cap))
   }
 
@@ -4000,6 +4034,7 @@ Assumes Modules 0–2 exist: `R/constants.R` already defines `EPV_CAP <- 10L` an
     cat("pathologic_stage values:\n"); print(table(cd$pathologic_stage, useNA="always"))'
   ```
   Expected: all five columns present; `vital_status` shows the event coding (either `1`/`0` or `"dead"`/`"alive"`) and `pathologic_stage` shows `"stage i"…"stage iv"` levels. If any required column is absent or named differently in this snapshot, adjust the names in Step 1 to the confirmed ones before proceeding.
+  Partial confirmation already in hand: the OS-event census (run 30708943504) read `vital_status` / `days_to_death` / `days_to_last_followup` off this snapshot's `colData` and the tolerant decode below (`vital_status` ∈ {`dead`, `deceased`, `1`}) yielded a non-degenerate 177 events over all 536 cases and 173 over the 524-case main cohort. Still run this step to confirm `years_to_birth` and the `pathologic_stage` levels, which the census did not touch.
 
 - [ ] **Step 1: Add the survival predictor set and design-assembly target.** In `_targets.R`, inside the `list(...)` of targets, add. The `vital_status` decode is deliberately robust — it treats a subject as an event if the value is `1`, `"1"`, `"dead"`, or `"deceased"` (case/space-insensitive) — and the target fails fast (`stopifnot`) if required columns are missing or the decode yields zero events, so a coding mismatch surfaces loudly instead of degenerating the fits:
   ```r
@@ -4007,7 +4042,7 @@ Assumes Modules 0–2 exist: `R/constants.R` already defines `EPV_CAP <- 10L` an
   # ---- Module 4: survival ----
   tar_target(
     survival_predictors,
-    c("Factor1", "Factor2", "Factor3", "age_years", "stage_num")  # 5 << EPV cap
+    c("Factor1", "Factor2", "Factor3", "age_years", "stage_num")  # 5 << EPV cap (17; 14 at 5 yr)
   ),
 
   tar_target(survival_df, {
@@ -4110,7 +4145,7 @@ Assumes Modules 0–2 exist: `R/constants.R` already defines `EPV_CAP <- 10L` an
         " C-index(cox)=", round(m$cindex$cox,3),
         " optimism=", round(m$optimism$cox,3), "\n")'
   ```
-  Expected: `survival_metrics OK: n_events= 1xx  C-index(cox)= 0.6xx  optimism= 0.0xx` (positive event count; finite values; no `stopifnot` error).
+  Expected: `survival_metrics OK: n_events= 173  C-index(cox)= 0.6xx  optimism= 0.0xx`. The measured OS-event census on the 524-case main cohort is **173 events / 522 usable** (run 30708943504), so `n_events` should land at 173 or a little below it after the complete-case filtering on factors/clinical and the `time > 0` filter; anything near zero means the `vital_status` decode is wrong. C-index and optimism are not yet measured (no model has been fitted) — only that they are finite and in range.
 
 - [ ] **Step 5: Commit.**
   ```bash
@@ -4216,7 +4251,7 @@ Assumes Modules 0–2 exist: `R/constants.R` already defines `EPV_CAP <- 10L` an
   ```python
   """Module 4 non-circular classifier: predict BAP1 mutation status from expression.
 
-  Labels are BAP1 somatic-mutation status on the n=374 mutation subset; features
+  Labels are BAP1 somatic-mutation status on the n=417 mutation subset; features
   are log-transformed normalised expression. Because the label is not derived
   from the expression features, this task is non-circular (spec §6b, §3.5).
   """
@@ -4314,7 +4349,8 @@ Assumes Modules 0–2 exist: `R/constants.R` already defines `EPV_CAP <- 10L` an
   # ---- Module 4: non-circular BAP1 classifier (R+Python via reticulate) ----
   tar_target(bap1_auroc, {
     reticulate::source_python("python/bap1_classifier.py")
-    # Restrict to the n=374 mutation subset and align samples to expression.
+    # Restrict to the n=417 mutation subset and align samples to expression
+    # (413 of those cases fall inside the 524-case main cohort).
     common <- intersect(colnames(rna_mat), rownames(mut_annot))
     stopifnot(length(common) > 0)
     expr_df <- as.data.frame(t(rna_mat[, common, drop = FALSE]))  # samples × genes
@@ -4585,7 +4621,9 @@ Rscript -e '
 '
 ```
 
-Expected output (values may drift as GDC updates — that is the point):
+Expected output (values may drift as GDC updates — that is the point). This is a
+**live-GDC** count and is NOT the frozen snapshot's case count (`colData` on the
+20160128 snapshot carries 536 cases); never quote one for the other:
 
 ```
 total_cases = 537
@@ -4965,8 +5003,9 @@ plot_ly(sm$calibration, x = ~predicted, y = ~observed,
 ```
 
 ::: {.dashboard-note}
-Effective n is 267–370 (modality intersection); the survival model is capped at
-~10 predictors by the EPV≈10 rule. See limitations in the README.
+Effective n is 241–524 (modality intersection; survival runs on the 524-case
+main cohort); the survival model is kept low-dimensional under the EPV≈10 rule.
+See limitations in the README.
 :::
 ```
 
@@ -5285,7 +5324,7 @@ knitr::kable(data.frame(
 knitr::kable(san[, c("check", "passed", "detail")])
 ```
 
-> Honest scope: effective n is 267–370 (modality intersection), the research
+> Honest scope: effective n is 241–524 (modality intersection), the research
 > core is a frozen 2016/hg19 snapshot, and CI renders from cache rather than
 > re-running the full pipeline. See the README limitations.
 ```
@@ -5579,7 +5618,7 @@ to end.
 | Stage | Approx. wall time | Notes |
 |---|---|---|
 | Ingest (curatedTCGAData, snapshot 20160128) | 10–25 min | HM450 HDF5 download dominates; cached after first run |
-| Preprocess (RNA/methyl merge/CNV, n≈528) | 2–5 min | |
+| Preprocess (RNA/methyl merge/CNV, n=524) | 2–5 min | |
 | MOFA2 training | 15–40 min | Python via reticulate/basilisk (external env) |
 | SNF sensitivity | < 1 min | |
 | Survival + BAP1 classifier | 3–8 min | low-dimensional, EPV≈10 cap |
@@ -5694,11 +5733,16 @@ honest CI-scope statement.
 ## Cohort reality (read before quoting sample sizes)
 
 The multi-omics n is **not ~530**. Main analysis cohort =
-RNA + Methylation(HM27+HM450 merged on common CpGs) + CNV ≈ **528**; the fully
-intersected RNA+Methyl+CNV+Mutation set is **370**, and RNA+HM450+CNV+Mutation
-is only **267**. Mutation is an **annotation** (BAP1/PBRM1 factor labels on the
-n=374 subset), never a MOFA view. RNA is RSEM upper-quartile normalised Level-3
+RNA + Methylation(HM27+HM450 merged on common CpGs) + CNV = **524**; the fully
+intersected RNA+Methyl+CNV+Mutation set is **413**, and RNA+HM450+CNV+Mutation
+is only **241**. Mutation is an **annotation** (BAP1/PBRM1 factor labels on the
+n=417 subset), never a MOFA view. RNA is RSEM upper-quartile normalised Level-3
 data — `log2(x+1)` + variable-gene filtering, **not** `vst`.
+
+These counts are **measured** on the frozen 2016 `curatedTCGAData` 2.0.1
+snapshot (20160128) — primary tumours only — not queried from the live GDC API;
+the two genuinely differ (the 2016 legacy MAF covers more cases than today's
+masked-somatic-mutation MAF, while CNV and the HM450 intersection cover fewer).
 
 ## What CI does (and does not) do
 
@@ -5712,8 +5756,9 @@ data — `log2(x+1)` + variable-gene filtering, **not** `vst`.
 
 ## Known limitations (stated openly)
 
-- **n is 267–370**, not ~530, set by modality intersection; the survival model
-  is kept low-dimensional (EPV≈10 → ~10 predictors) accordingly.
+- **n is 241–524**, not ~530, set by modality intersection; the survival model
+  runs on the 524-case main cohort and is kept low-dimensional under an EPV≈10
+  budget computed from the observed event count.
 - **Frozen 2016 / hg19 snapshot**; genuine live-update is limited to the GDC
   statistics panel.
 - **Subtype → survival optimism** is controlled by a held-out / nested-CV split,
@@ -5771,7 +5816,7 @@ TCGA-KIRC somatic multi-omics, built as a reproducible analytical pipeline.
 `curatedTCGAData` gives a versioned `MultiAssayExperiment` (frozen 2016
 snapshot). I align RNA (log-normalised, not vst), methylation (HM27+HM450 merged
 on common CpGs — hard-coding "450k" would silently halve the cohort), and CNV on
-the ~528 common samples. MOFA2 (genuinely R+Python via reticulate/basilisk)
+the 524 common samples. MOFA2 (genuinely R+Python via reticulate/basilisk)
 gives shared latent factors; SNF is a cheap sensitivity check and I report the
 two-method concordance. Mutation is annotation, not a view — I interpret which
 factor tracks BAP1/PBRM1. Survival is low-dimensional (EPV≈10 cap) on a held-out
@@ -5791,8 +5836,10 @@ and shipped as a Quarto/Plotly dashboard on Pages.
 
 ## The caveats I raise before I'm asked (this is the maturity signal)
 
-- Effective n is 267–370, not ~530; that is why the survival model is
-  deliberately low-dimensional.
+- Effective n is 241–524, not ~530; the survival model runs on the 524-case
+  main cohort and is deliberately low-dimensional. I also quote snapshot
+  numbers, not live-GDC numbers — the frozen 2016 MAF and today's masked MAF
+  cover different case sets, and conflating them is an easy silent error.
 - The research core is a frozen 2016/hg19 snapshot; only the live GDC panel
   updates — so "regularly updated tool" is scoped honestly to that panel.
 - Subtype → survival optimism is controlled by a split, not yet an external

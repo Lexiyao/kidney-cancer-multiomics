@@ -1,14 +1,33 @@
-.Rproj.user
-.Rhistory
-.RData
-.DS_Store
+# R / renv
 renv/library/
 renv/local/
+renv/cellar/
 renv/staging/
-_targets/
-.firecrawl/
+.Rhistory
+.RData
+.Rproj.user/
+
+# targets store (shipped as release asset, not committed source)
+_targets/objects/
+_targets/meta/process
+_targets/meta/progress
+
+# Data caches (ExperimentHub / GDC)
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+
+# Python
 __pycache__/
 *.pyc
 .venv/
-data/raw/
-ExperimentHub/
+.pytest_cache/
+.ruff_cache/
+
+# Quarto
+dashboard/_site/
+dashboard/.quarto/
+
+# OS
+.DS_Store

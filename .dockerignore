@@ -1,0 +1,12 @@
+.git
+renv/library
+renv/staging
+_targets
+data/raw
+data/processed
+dashboard/_site
+dashboard/.quarto
+**/__pycache__
+.venv
+.pytest_cache
+.ruff_cache

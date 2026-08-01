@@ -1,0 +1,11 @@
+:root {
+  --brand: #2c6e91;
+}
+
+.navbar {
+  border-bottom: 2px solid var(--brand);
+}
+
+h2 {
+  color: var(--brand);
+}

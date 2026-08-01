@@ -1,0 +1,9 @@
+---
+title: "Dashboard"
+---
+
+## Interactive dashboard (scaffold)
+
+Module 5 fills this page with Plotly views: MOFA2 subtypes, survival curves,
+factor loadings, gene views, and the live-GDC panel. This Phase 0 page renders
+without R so the Pages deploy is green before the pipeline exists.

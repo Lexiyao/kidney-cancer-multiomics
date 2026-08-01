@@ -1,0 +1,35 @@
+name: pages
+
+# Deploying publishes the site publicly. Kept on manual dispatch only until the
+# Module 5 dashboard actually has results worth showing and publication is a
+# deliberate decision — a push trigger would make every merge to main an
+# outward-facing publish. Restore the `push: branches: [main]` trigger then.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: quarto-dev/quarto-actions/setup@v2
+      - name: Render Quarto site (from cached results, no full pipeline)
+        run: quarto render dashboard
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dashboard/_site
+      - id: deployment
+        uses: actions/deploy-pages@v4

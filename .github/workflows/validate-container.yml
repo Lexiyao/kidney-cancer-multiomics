@@ -1,0 +1,89 @@
+name: validate-container
+
+# One-off validation of the MOFA2 / basilisk / reticulate / system-Python chain
+# (design spec section 5). Runs INSIDE the same Bioconductor base image the
+# Dockerfile uses, so it exercises the real container environment without needing
+# a local Docker daemon. This is NOT the normal CI (ci.yml stays lint+tests).
+# Scoped to the scaffold branch + manual dispatch.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [phase-0-scaffold]
+
+jobs:
+  mofa2-chain:
+    runs-on: ubuntu-latest
+    container:
+      image: bioconductor/bioconductor_docker:RELEASE_3_23
+    defaults:
+      run:
+        shell: bash
+    env:
+      RETICULATE_PYTHON: /usr/bin/python3
+      BASILISK_EXTERNAL_DIR: /opt/basilisk
+      BASILISK_USE_SYSTEM_DIR: "1"
+    steps:
+      - name: Checkout
+        run: |
+          git config --global --add safe.directory '*'
+      - uses: actions/checkout@v4
+
+      - name: Report base image Python
+        run: |
+          echo "::group::python"
+          python3 --version
+          pip3 --version
+          echo "::endgroup::"
+
+      - name: Full requirements resolvability (dry-run, incl. scanpy)
+        run: |
+          set -euxo pipefail
+          pip3 install --break-system-packages --dry-run -r requirements.txt
+          echo "OK: requirements.txt resolves"
+
+      - name: Install MOFA2 runtime Python deps (system python, reticulate target)
+        run: |
+          set -euxo pipefail
+          apt-get update && apt-get install -y --no-install-recommends python3-dev
+          pip3 install --no-cache-dir --break-system-packages --ignore-installed \
+            mofapy2==0.7.2 numpy==1.26.4 pandas==2.2.2 h5py==3.11.0 scipy==1.13.1 scikit-learn==1.5.1
+          mkdir -p /opt/basilisk
+          python3 -c "import mofapy2, numpy, pandas, h5py, scipy, sklearn; print('mofapy2', mofapy2.__version__, '| numpy', numpy.__version__)"
+
+      - name: Install MOFA2 R package (pulls reticulate + basilisk)
+        run: |
+          set -euxo pipefail
+          R -q -e 'BiocManager::install("MOFA2", update = FALSE, ask = FALSE)'
+          R -q -e 'stopifnot(packageVersion("MOFA2") >= "1.22.0"); cat("MOFA2", as.character(packageVersion("MOFA2")), "installed\n")'
+
+      - name: MOFA2 end-to-end smoke (reticulate -> system python, use_basilisk = FALSE)
+        run: |
+          R -q -e '
+            library(MOFA2)
+            reticulate::use_python("/usr/bin/python3", required = TRUE)
+            invisible(reticulate::import("mofapy2"))
+            cat("STEP: mofapy2 importable via reticulate -> OK\n")
+
+            set.seed(1)
+            v1 <- matrix(rnorm(20 * 50), 20, 50,
+                         dimnames = list(paste0("g", 1:20), paste0("s", 1:50)))
+            v2 <- matrix(rnorm(15 * 50), 15, 50,
+                         dimnames = list(paste0("m", 1:15), paste0("s", 1:50)))
+            obj <- create_mofa(list(rna = v1, methyl = v2))
+
+            mopt <- get_default_model_options(obj); mopt$num_factors <- 3
+            topt <- get_default_training_options(obj)
+            topt$maxiter <- 20; topt$convergence_mode <- "fast"; topt$verbose <- FALSE
+
+            obj <- prepare_mofa(obj, model_options = mopt, training_options = topt)
+            out <- tempfile(fileext = ".hdf5")
+            m <- run_mofa(obj, outfile = out, use_basilisk = FALSE)
+
+            stopifnot(inherits(m, "MOFA"))
+            f <- get_factors(m)[[1]]
+            stopifnot(is.matrix(f), ncol(f) >= 1L, nrow(f) == 50L)
+            cat("STEP: run_mofa(use_basilisk = FALSE) trained -> factors",
+                paste(dim(f), collapse = " x "), "\n")
+            cat("RESULT: MOFA2 / reticulate / system-Python chain VALIDATED\n")
+          '

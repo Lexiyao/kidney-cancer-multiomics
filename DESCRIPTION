@@ -1,0 +1,38 @@
+Package: kidney.cancer.multiomics
+Title: Reproducible TCGA-KIRC Somatic Multi-Omics Pipeline
+Version: 0.0.0.9000
+Authors@R:
+    person("Zixi", "Yao", role = c("aut", "cre"),
+           email = "yaonyyao@gmail.com")
+Description: A targets-orchestrated, renv-pinned R+Python pipeline that
+    integrates TCGA-KIRC RNA, methylation and CNV with MOFA2 and SNF, runs
+    literature positive controls, fits low-dimensional survival and a BAP1
+    classifier, and renders a live-updating Quarto dashboard.
+Encoding: UTF-8
+Depends:
+    R (>= 4.4)
+Imports:
+    targets,
+    tarchetypes,
+    MultiAssayExperiment,
+    curatedTCGAData,
+    MOFA2,
+    SNFtool,
+    glmnet,
+    randomForestSRC,
+    survival,
+    reticulate,
+    basilisk,
+    httr,
+    quarto,
+    plotly,
+    yaml,
+    minfi,
+    IlluminaHumanMethylation450kanno.ilmn12.hg19,
+    RaggedExperiment,
+    SummarizedExperiment
+Suggests:
+    testthat (>= 3.0.0),
+    lintr
+Config/testthat/edition: 3
+License: MIT + file LICENSE

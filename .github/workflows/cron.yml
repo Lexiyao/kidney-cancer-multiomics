@@ -1,0 +1,19 @@
+name: cron
+
+on:
+  schedule:
+    - cron: "17 4 * * 1"   # Mondays 04:17 UTC
+  workflow_dispatch:
+
+jobs:
+  drift-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Weekly maintenance scope (scaffold placeholder)
+        run: |
+          echo "Weekly job duties (Module 5 wires the real steps):"
+          echo "  1. Refresh the live-GDC dashboard panel (fn_query_gdc)."
+          echo "  2. Dependency / environment drift detection."
+          echo "  3. Container rebuild."
+          echo "The research core is a frozen 20160128 snapshot and never updates."
