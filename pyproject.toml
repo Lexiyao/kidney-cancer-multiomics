@@ -1,0 +1,19 @@
+# Python tooling config. `python/` (Module 4 classifier, Module 6 single-cell)
+# does not exist until those modules are built; ruff is pointed at the repo root
+# so the config keeps working as directories appear.
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+exclude = [
+    "renv",
+    "_targets",
+    "dashboard/_site",
+    ".firecrawl",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/pytest"]
+markers = [
+    "heavy: triggers a heavy pull (mofapy2/scanpy); skipped in CI",
+]

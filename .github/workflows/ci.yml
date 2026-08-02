@@ -1,5 +1,24 @@
 name: ci
 
+# Scope (design spec section 8): CI lints and runs the unit tests on subsampled
+# fixtures. It does NOT run the pipeline and does NOT rebuild the full research
+# environment — a green badge here is not full reproduction.
+#
+# Why not `renv::restore()` of the whole lockfile: renv.lock pins the complete
+# 218-package RESEARCH environment (MOFA2, minfi, curatedTCGAData, scanpy...).
+# Restoring it for a lint-and-fixture-test job is both disproportionate and
+# fragile — on a bare ubuntu runner it fails outright, e.g.
+#   error testing if 'igraph' can be loaded
+#   libglpk.so.40: cannot open shared object file
+# because the Bioconductor dependency chain needs system libraries that image
+# does not carry. Instead this job runs inside the SAME Bioconductor image the
+# Dockerfile builds on (so system libraries are guaranteed and CI matches
+# production), installs only what the tests import, and then ASSERTS those
+# versions equal renv.lock so CI still guards the pins it depends on.
+#
+# Full-lockfile restore is exercised where it belongs: the Dockerfile's
+# renv::restore() and the heavy-pull workflow.
+
 on:
   push:
     branches: [main]
@@ -8,15 +27,61 @@ on:
 jobs:
   r-checks:
     runs-on: ubuntu-latest
+    container:
+      image: bioconductor/bioconductor_docker:RELEASE_3_23
+    defaults:
+      run:
+        shell: bash
     env:
       GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
       HEAVY_PULL: "false"
+      # The repo .Rprofile activates renv and repoints libPaths at an empty
+      # project library, which would hide everything installed below.
+      RENV_CONFIG_AUTOLOADER_ENABLED: "false"
+      R_PROFILE_USER: /dev/null
     steps:
+      - name: Mark workspace safe for git
+        run: git config --global --add safe.directory '*'
+
       - uses: actions/checkout@v4
-      - uses: r-lib/actions/setup-r@v2
-        with:
-          r-version: "4.5"
-      - uses: r-lib/actions/setup-renv@v2
+
+      - name: Install test dependencies
+        run: |
+          set -euxo pipefail
+          R -q -e '
+            # SNFtool is NOT in the Bioconductor base image and Module 2s
+            # fn_run_snf tests call it directly, so without it
+            # tests/testthat.R errors with "there is no package called
+            # SNFtool". MOFA2/mofapy2 are deliberately absent: those tests
+            # guard on skip_if_no_mofapy2() and run in verify-module2.yml.
+            pkgs <- c("testthat", "lintr", "targets", "yaml", "SNFtool",
+                      "MultiAssayExperiment", "SummarizedExperiment",
+                      "RaggedExperiment")
+            BiocManager::install(pkgs, update = FALSE, ask = FALSE, Ncpus = 4)
+            missing <- pkgs[!vapply(pkgs, requireNamespace, logical(1), quietly = TRUE)]
+            if (length(missing)) stop("failed to install: ", paste(missing, collapse = ", "))
+          '
+
+      # Keeps this job honest about the lockfile it deliberately does not restore.
+      - name: Assert installed versions match renv.lock
+        run: |
+          R -q -e '
+            lock <- jsonlite::fromJSON("renv.lock")$Packages
+            check <- c("MultiAssayExperiment", "SummarizedExperiment",
+                       "RaggedExperiment", "targets", "SNFtool")
+            bad <- character(0)
+            for (p in check) {
+              want <- lock[[p]]$Version
+              got  <- as.character(packageVersion(p))
+              cat(sprintf("%-24s lock=%-10s installed=%-10s %s\n",
+                          p, want, got, if (identical(want, got)) "OK" else "MISMATCH"))
+              if (!identical(want, got)) bad <- c(bad, p)
+            }
+            if (length(bad)) {
+              stop("installed versions drifted from renv.lock: ", paste(bad, collapse = ", "))
+            }
+          '
+
       # Lint rules live in .lintr (single source of truth, shared with local runs).
       # object_usage_linter is disabled there: this is a targets/source() project,
       # not a package, so constants in R/constants.R and helpers in
@@ -24,8 +89,9 @@ jobs:
       # cross-file reference would be a false positive.
       - name: Lint R (config from .lintr)
         run: |
-          Rscript -e 'l <- lintr::lint_dir("R");
+          R -q -e 'l <- lintr::lint_dir("R");
             if (length(l) > 0) { print(l); quit(status = 1) }'
+
       - name: Run testthat on fixtures (no full pipeline)
         run: Rscript tests/testthat.R
 
@@ -38,9 +104,17 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install Python deps + tooling
-        run: pip install -r requirements.txt ruff pytest
+      # numpy only: the fixture tests import it. The full requirements.txt
+      # (mofapy2, scanpy, scikit-learn) is the RESEARCH environment, installed
+      # in the Docker image and the heavy-pull job — not needed to lint and run
+      # fixture tests, and pulling it here would make CI slow for no coverage.
+      - name: Install tooling
+        run: pip install ruff pytest "numpy==1.26.4"
+      # `ruff check .` rather than naming directories: `python/` does not exist
+      # until Module 4 creates it, and naming a not-yet-existing path made ruff
+      # exit 1 with "E902 No such file or directory --> python:1:1". Excludes
+      # live in pyproject.toml.
       - name: Lint Python
-        run: ruff check python tests/pytest
+        run: ruff check .
       - name: Run pytest on fixtures (skip heavy paths)
         run: pytest tests/pytest -q -m 'not heavy'

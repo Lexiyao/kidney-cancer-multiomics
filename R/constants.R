@@ -101,3 +101,15 @@ SILENT_CLASSES      <- c(                        # variant classes treated as no
   "Silent", "Intron", "IGR", "RNA",
   "3'UTR", "5'UTR", "3'Flank", "5'Flank"
 )
+
+# --- Module 2: integration (MOFA2 / SNFtool) ---
+MOFA_N_FACTORS <- 15L        # upper bound; MOFA prunes inactive factors
+MOFA_MAXITER   <- 1000L      # convergence_mode = "fast" stops earlier
+MOFA_SEED      <- 42L
+K_SUBTYPES     <- 4L         # KIRC has 4 documented methylation/expression strata
+SUBTYPE_SEED   <- 42L
+SNF_K          <- 20L        # SNF K-nearest-neighbours
+SNF_ALPHA      <- 0.5        # SNF affinity hyperparameter (sigma)
+SNF_T          <- 20L        # SNF diffusion iterations
+MIN_MUT_ANNOT_SAMPLES <- 50L # guard: mutation subset must overlap factors
+MIN_SNF_COMPLETE_FRAC <- 0.5 # guard: fraction of SNF features that must be finite

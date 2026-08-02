@@ -1,0 +1,188 @@
+name: verify-module2
+
+# Container verification of Module 2 (MOFA2 / SNF integration).
+#
+# Why this exists: MOFA2 needs a Python backend (mofapy2 via reticulate), so it
+# cannot run on the dev machine. Locally the MOFA-dependent testthat tests SKIP
+# through `skip_if_no_mofapy2()` — by design, but it means the MOFA code path is
+# unexecuted until it runs here. This workflow closes that gap twice over:
+#
+#   1. FIXTURE LEVEL — runs the whole testthat suite with mofapy2 present, so the
+#      MOFA skips lift and those tests actually execute.
+#   2. REAL-DATA LEVEL — HEAVY_PULL=true tar_make() over Modules 1 and 2, then
+#      reports the actual integration output (variance explained per view,
+#      subtype sizes, MOFA-vs-SNF ARI, factor-vs-BAP1/PBRM1 association).
+#
+# Manual dispatch, or push the dedicated `run-module2` branch. Expect 30-90 min.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [run-module2]
+
+jobs:
+  module2:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    container:
+      image: bioconductor/bioconductor_docker:RELEASE_3_23
+    defaults:
+      run:
+        shell: bash
+    env:
+      HEAVY_PULL: "true"
+      RETICULATE_PYTHON: /usr/bin/python3
+      BASILISK_EXTERNAL_DIR: /opt/basilisk
+      BASILISK_USE_SYSTEM_DIR: "1"
+      RENV_CONFIG_AUTOLOADER_ENABLED: "false"
+      R_PROFILE_USER: /dev/null
+      EXPERIMENT_HUB_CACHE: /__w/experimenthub
+      ANNOTATION_HUB_CACHE: /__w/annotationhub
+
+    steps:
+      - name: Mark workspace safe for git
+        run: git config --global --add safe.directory '*'
+
+      - uses: actions/checkout@v4
+
+      - name: Report runner resources
+        run: |
+          echo "--- disk ---"; df -h /__w / || true
+          echo "--- memory ---"; free -h || true
+          echo "--- cpus ---"; nproc || true
+
+      # --ignore-installed: the Bioconductor base ships Debian-managed
+      # numpy/scipy with no RECORD file, which pip cannot uninstall.
+      - name: Install mofapy2 into the reticulate Python
+        run: |
+          set -euxo pipefail
+          apt-get update && apt-get install -y --no-install-recommends python3-dev
+          pip3 install --no-cache-dir --break-system-packages --ignore-installed \
+            mofapy2==0.7.2 numpy==1.26.4 pandas==2.2.2 h5py==3.11.0 scipy==1.13.1
+          mkdir -p /opt/basilisk
+          python3 -c "import mofapy2; print('mofapy2', mofapy2.__version__)"
+
+      - name: Install R dependencies
+        run: |
+          set -euxo pipefail
+          R -q -e '
+            pkgs <- c("targets", "tarchetypes", "MultiAssayExperiment",
+                      "SummarizedExperiment", "RaggedExperiment",
+                      "curatedTCGAData", "MOFA2", "SNFtool", "mclust",
+                      "minfi", "IlluminaHumanMethylation450kanno.ilmn12.hg19",
+                      "reticulate", "testthat", "lintr", "yaml")
+            BiocManager::install(pkgs, update = FALSE, ask = FALSE, Ncpus = 4)
+            missing <- pkgs[!vapply(pkgs, requireNamespace, logical(1), quietly = TRUE)]
+            if (length(missing)) stop("failed to install: ", paste(missing, collapse = ", "))
+            cat("all", length(pkgs), "packages installed\n")
+          '
+
+      # LEVEL 1 — the MOFA tests that SKIP on the dev machine must now RUN.
+      # A remaining MOFA skip here would mean the guard is misfiring and the
+      # code path is still unexecuted, so assert the skip count is zero.
+      - name: Full testthat suite with mofapy2 present (MOFA skips must lift)
+        run: |
+          R -q -e '
+            stopifnot(reticulate::py_module_available("mofapy2"))
+            cat("### mofapy2 visible to reticulate -> MOFA tests will NOT skip\n")
+            res <- testthat::test_dir("tests/testthat", reporter = "summary", stop_on_failure = FALSE)
+            df  <- as.data.frame(res)
+            cat("\n### SUITE TOTALS\n")
+            cat("passed :", sum(df$passed), "\n")
+            cat("failed :", sum(df$failed), "\n")
+            cat("skipped:", sum(df$skipped), "\n")
+            if (sum(df$skipped) > 0) {
+              cat("\n### STILL-SKIPPED TESTS (investigate — the MOFA guard should have lifted)\n")
+              print(df[df$skipped > 0, c("file", "test")])
+            }
+            if (sum(df$failed) > 0) quit(status = 1)
+            if (sum(df$skipped) > 0) stop("MOFA tests still skipped with mofapy2 present")
+          '
+
+      # LEVEL 2 — real data. Continue on error so the artifacts and the level-1
+      # result survive an OOM in MOFA training.
+      - name: Build Modules 1+2 on the real snapshot
+        id: tarmake
+        continue-on-error: true
+        run: |
+          R -q -e '
+            t0 <- Sys.time()
+            targets::tar_make()
+            cat("\n### tar_make wall time:",
+                round(difftime(Sys.time(), t0, units = "mins"), 1), "min\n")
+            cat("\n### BUILT TARGETS\n"); print(targets::tar_objects())
+          '
+
+      - name: Report real integration results
+        continue-on-error: true
+        run: |
+          R -q -e '
+            source("R/constants.R")
+            dir.create("artifacts", showWarnings = FALSE)
+            out <- file("artifacts/module2_results.txt", open = "wt")
+            emit <- function(...) { cat(..., "\n"); cat(..., "\n", file = out) }
+
+            emit("### COHORT")
+            emit("cohort_n =", targets::tar_read(cohort_n))
+
+            # How much missingness is actually in the views? This decides whether
+            # SNF (which needs complete features) is still comparing like with
+            # like against MOFA (which models missingness natively).
+            emit("")
+            emit("### MISSINGNESS PER VIEW (drives the SNF complete-feature drop)")
+            for (nm in c("rna_mat", "methyl_mat", "cnv_mat")) {
+              m <- targets::tar_read_raw(nm)
+              ok <- apply(is.finite(m), 1L, all)
+              emit(sprintf("%-11s %d x %d | complete features %d (%.1f%%) | non-finite cells %.3f%%",
+                           nm, nrow(m), ncol(m), sum(ok), 100 * sum(ok) / nrow(m),
+                           100 * mean(!is.finite(m))))
+            }
+
+            f <- targets::tar_read(mofa_factors)
+            emit("")
+            emit("### MOFA FACTORS")
+            emit("dim (samples x factors):", paste(dim(f), collapse = " x "))
+            emit("factor names:", paste(colnames(f), collapse = ", "))
+
+            v <- targets::tar_read(mofa_varexp)
+            emit("")
+            emit("### VARIANCE EXPLAINED PER VIEW PER FACTOR (%)")
+            emit(paste(capture.output(print(round(as.matrix(v), 2))), collapse = "\n"))
+
+            s <- targets::tar_read(subtypes_mofa)
+            emit("")
+            emit("### MOFA SUBTYPES (k =", K_SUBTYPES, ")")
+            emit(paste(capture.output(print(table(s))), collapse = "\n"))
+
+            sn <- targets::tar_read(snf_clusters)
+            emit("")
+            emit("### SNF CLUSTERS (sensitivity)")
+            emit(paste(capture.output(print(table(sn))), collapse = "\n"))
+
+            cc <- targets::tar_read(concordance)
+            emit("")
+            emit("### MOFA vs SNF CONCORDANCE (adjusted Rand index)")
+            emit(paste(capture.output(print(cc)), collapse = "\n"))
+
+            ma <- targets::tar_read(mutation_factor_annot)
+            emit("")
+            emit("### FACTOR <-> DRIVER-MUTATION ASSOCIATION (mutation as external label)")
+            emit(paste(capture.output(print(ma)), collapse = "\n"))
+            close(out)
+          '
+
+      - name: Collect targets metadata
+        if: always()
+        continue-on-error: true
+        run: |
+          mkdir -p artifacts
+          cp -r _targets/meta artifacts/targets-meta 2>/dev/null || echo "no _targets/meta"
+          du -sh _targets 2>/dev/null || true
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: module2-results
+          path: artifacts/
+          if-no-files-found: warn

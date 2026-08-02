@@ -2261,6 +2261,11 @@ fn_run_mofa <- function(view_list,
   mofa <- MOFA2::create_mofa(view_list)
 
   data_opts  <- MOFA2::get_default_data_options(mofa)
+  # RNA (log2 RSEM), Methylation (M-values) and CNV (GISTIC -2..2 over ~5x more
+  # features) are on incomparable scales; the MOFA2 default scale_views = FALSE
+  # would weight views by RAW total variance and let one view drive the factors
+  # and the headline per-omics R2 table.
+  data_opts$scale_views <- TRUE
   model_opts <- MOFA2::get_default_model_options(mofa)
   model_opts$num_factors <- n_factors
   train_opts <- MOFA2::get_default_training_options(mofa)
@@ -2326,6 +2331,9 @@ test_that("fn_extract_factors and fn_variance_explained expose factors and per-o
   expect_true(is.matrix(varexp))
   expect_true(all(colnames(varexp) %in% names(views)))  # one column per omics
   expect_true(all(varexp >= 0 & varexp <= 100))         # R2 percentages
+  # scale_views = TRUE is set so no single omics layer can dominate: every view
+  # must end up with a non-trivial share of explained variance.
+  expect_true(all(colSums(varexp) > 0))
 })
 ```
 
@@ -2401,6 +2409,35 @@ test_that("fn_assign_subtypes returns k seeded, reproducible clusters over sampl
   expect_identical(s1, s2)                                  # reproducible
   expect_equal(length(unique(s1[1:20])), 1L)               # blob A one cluster
   expect_equal(length(unique(s1[21:40])), 1L)              # blob B one cluster
+  # nlevels() reads the DECLARED levels (always seq_len(k) by construction) and
+  # the two block-homogeneity checks above are both satisfied by a constant
+  # labelling, so without these a stub that ignores factor_matrix and returns
+  # "S1" for every sample would pass. The blobs must land in DIFFERENT clusters.
+  expect_equal(length(unique(s1)), 2L)
+  expect_false(identical(as.character(s1[1]), as.character(s1[40])))
+})
+
+test_that("fn_assign_subtypes seeds without mutating the caller's RNG state", {
+  # Arrange
+  set.seed(6)
+  fm <- rbind(matrix(rnorm(40, mean = -5), ncol = 2),
+              matrix(rnorm(40, mean =  5), ncol = 2))
+  rownames(fm) <- paste0("TCGA-", seq_len(nrow(fm)))
+  colnames(fm) <- c("Factor1", "Factor2")
+  had_seed <- exists(".Random.seed", envir = globalenv(), inherits = FALSE)
+  saved <- if (had_seed) get(".Random.seed", envir = globalenv()) else NULL
+  on.exit(fn_rng_restore(saved), add = TRUE)
+
+  # Act / Assert: an existing RNG state survives the seeded k-means untouched.
+  set.seed(99)
+  before <- get(".Random.seed", envir = globalenv())
+  invisible(fn_assign_subtypes(fm, k = 2L))
+  expect_identical(get(".Random.seed", envir = globalenv()), before)
+
+  # Act / Assert: with no prior RNG state, none is left behind either.
+  rm(".Random.seed", envir = globalenv())
+  invisible(fn_assign_subtypes(fm, k = 2L))
+  expect_false(exists(".Random.seed", envir = globalenv(), inherits = FALSE))
 })
 ```
 
@@ -2491,6 +2528,56 @@ test_that("fn_run_snf fuses views and returns spectral clusters over sample IDs"
   expect_equal(names(clusters), colnames(views$RNA))
   expect_equal(length(unique(clusters[1:10])),  1L)
   expect_equal(length(unique(clusters[11:20])), 1L)
+  # Both clusters must actually be USED and the two blocks must land in
+  # DIFFERENT ones: without these, a stub returning a single constant label for
+  # all 20 samples satisfies every assertion above.
+  expect_equal(length(unique(clusters)), 2L)
+  expect_false(identical(as.character(clusters[1]), as.character(clusters[20])))
+})
+
+test_that("fn_run_snf fuses information across views (no single view suffices)", {
+  # Arrange: the same two sample blocks in both views, but with a signal so weak
+  # that NEITHER view alone recovers them — only the fused network does. Without
+  # this, both views carry the identical strong signal and an implementation
+  # that silently discards every view after the first still passes.
+  set.seed(32)
+  mk <- function(mu = 0.35) {
+    m <- cbind(matrix(rnorm(200, -mu), nrow = 20),
+               matrix(rnorm(200,  mu), nrow = 20))
+    colnames(m) <- paste0("TCGA-", seq_len(ncol(m)))
+    m
+  }
+  views <- list(RNA = mk(), CNV = mk())
+
+  # Act
+  clusters <- fn_run_snf(views, k = 5L, n_clusters = 2L)
+
+  # Assert: exact recovery of the true 10/10 partition. (Verified: clustering
+  # either view's affinity matrix alone misassigns samples and fails this.)
+  expect_equal(length(unique(clusters[1:10])),  1L)
+  expect_equal(length(unique(clusters[11:20])), 1L)
+  expect_false(identical(as.character(clusters[1]), as.character(clusters[20])))
+})
+
+test_that("fn_run_snf rejects views whose sample columns disagree", {
+  # Arrange: SNF fuses affinities POSITIONALLY and labels from view 1, so a
+  # permuted view would silently attach labels to the wrong samples.
+  set.seed(5)
+  mk <- function() {
+    m <- cbind(matrix(rnorm(200, -3), nrow = 20),
+               matrix(rnorm(200,  3), nrow = 20))
+    colnames(m) <- paste0("TCGA-", seq_len(ncol(m)))
+    m
+  }
+  views <- list(RNA = mk(), CNV = mk())
+  permuted <- views
+  permuted$CNV <- permuted$CNV[, rev(colnames(permuted$CNV)), drop = FALSE]
+  unnamed <- views
+  colnames(unnamed$RNA) <- NULL
+
+  # Act / Assert
+  expect_error(fn_run_snf(permuted, k = 5L, n_clusters = 2L))
+  expect_error(fn_run_snf(unnamed, k = 5L, n_clusters = 2L))
 })
 ```
 
@@ -2509,11 +2596,13 @@ fn_run_snf <- function(view_list,
                        t = SNF_T,
                        n_clusters = K_SUBTYPES) {
   stopifnot(is.list(view_list), length(view_list) >= 2L)
-  samples <- colnames(view_list[[1L]])
+  samples <- fn_view_samples(view_list)
 
   affinities <- lapply(view_list, function(m) {
     x <- SNFtool::standardNormalization(t(as.matrix(m)))  # samples x features
-    d <- SNFtool::dist2(as.matrix(x), as.matrix(x))       # squared euclidean
+    # dist2() returns SQUARED euclidean distance; affinityMatrix() wants a
+    # DISTANCE matrix (its own example square-roots dist2 before calling it).
+    d <- sqrt(SNFtool::dist2(as.matrix(x), as.matrix(x)))
     SNFtool::affinityMatrix(d, K = k, sigma = alpha)
   })
 
@@ -2522,6 +2611,20 @@ fn_run_snf <- function(view_list,
 
   factor(stats::setNames(paste0("C", cl), samples),
          levels = paste0("C", seq_len(n_clusters)))
+}
+
+#' Shared sample IDs of a view list, enforcing identical sample columns.
+#' SNF fuses affinities POSITIONALLY and labels from view 1, so disagreeing
+#' sample columns silently attach labels to the wrong samples.
+fn_view_samples <- function(view_list) {
+  samples <- colnames(view_list[[1L]])
+  stopifnot(
+    !is.null(samples),
+    all(vapply(view_list,
+               function(m) identical(colnames(m), samples),
+               logical(1)))
+  )
+  samples
 }
 ```
 
@@ -2554,9 +2657,11 @@ git commit -m "feat: add SNFtool sensitivity clustering (fn_run_snf)"
 test_that("fn_cluster_concordance returns ARI = 1 for identical partitions and aligns by name", {
   # Arrange
   a <- factor(setNames(c("S1","S1","S2","S2"), paste0("s", 1:4)))
-  # same partition, different labels + shuffled order -> ARI must be 1
-  b <- factor(setNames(c("C2","C2","C1"), c("s3","s4","s1")))
-  b <- c(b, setNames(factor("C1", levels = c("C1","C2")), "s2"))
+  # Same partition by NAME (s1,s2 -> one cluster; s3,s4 -> the other), different
+  # labels, and an order that is NOT invariant under positional zipping: pairing
+  # a and b by position gives four singleton cells (ARI = -0.5), so an
+  # implementation that drops the `[common]` name indexing fails here.
+  b <- factor(setNames(c("C1","C2","C1","C2"), c("s1","s3","s2","s4")))
 
   # Act
   res <- fn_cluster_concordance(a, b)
@@ -2655,6 +2760,14 @@ test_that("fn_annotate_mutation flags the factor that tracks a gene's mutation s
   rownames(fm) <- ids
   mut <- data.frame(BAP1 = status, PBRM1 = sample(0:1, 100, TRUE),
                     row.names = ids)
+  # Break the incidental order/length coincidence between fm and mut. The join
+  # is by ROWNAME; with both frames the same length and in the same order, an
+  # implementation that drops the `mut_annot[common, ]` re-alignment is
+  # indistinguishable from the correct one.
+  mut <- mut[sample(nrow(mut)), , drop = FALSE]
+  fm  <- rbind(fm, matrix(rnorm(20), nrow = 10,
+                          dimnames = list(paste0("TCGA-ZZ-", 1:10),
+                                          colnames(fm))))   # factor-only samples
 
   # Act
   res <- fn_annotate_mutation(fm, mut, genes = c("BAP1", "PBRM1"))
@@ -2666,6 +2779,51 @@ test_that("fn_annotate_mutation flags the factor that tracks a gene's mutation s
   expect_equal(top$gene, "BAP1")
   expect_equal(top$factor, "Factor2")
   expect_lt(top$p_value, 1e-6)
+  # Direction carries the biology ("BAP1-mutant tumours sit HIGH on Factor2").
+  expect_gt(top$median_mut, top$median_wt)
+  expect_equal(top$median_wt,  stats::median(fm[ids[status == 0L], "Factor2"]))
+  expect_equal(top$median_mut, stats::median(fm[ids[status == 1L], "Factor2"]))
+  # q_value must be a real BH correction, not a copy of p_value.
+  expect_equal(res$q_value, stats::p.adjust(res$p_value, method = "BH"))
+  expect_gt(res$q_value[1], res$p_value[1])
+})
+
+test_that("fn_annotate_mutation returns NA rows for a gene that is constant in the overlap", {
+  # Arrange
+  set.seed(8)
+  ids <- paste0("TCGA-", 1:60)
+  status <- rep(c(0L, 1L), each = 30)
+  fm <- cbind(Factor1 = rnorm(60), Factor2 = status * 3 + rnorm(60, sd = 0.5))
+  rownames(fm) <- ids
+  mut <- data.frame(BAP1 = status,
+                    MTOR = rep(0L, 60),          # absent from the MAF
+                    KDM5C = rep(1L, 60),         # the 100% branch
+                    row.names = ids)
+
+  # Act
+  res <- fn_annotate_mutation(fm, mut, genes = c("BAP1", "MTOR", "KDM5C"))
+
+  # Assert
+  expect_equal(nrow(res), 6L)
+  expect_true(all(is.na(res$p_value[res$gene %in% c("MTOR", "KDM5C")])))
+  expect_true(all(is.na(res$q_value[res$gene %in% c("MTOR", "KDM5C")])))
+  expect_true(all(!is.na(res$p_value[res$gene == "BAP1"])))
+  expect_equal(res$gene[1], "BAP1")                            # NAs sort last
+})
+
+test_that("fn_annotate_mutation reports a diagnostic error on a degenerate overlap", {
+  # Arrange
+  set.seed(9)
+  ids <- paste0("TCGA-", 1:60)
+  fm <- matrix(rnorm(120), nrow = 60,
+               dimnames = list(ids, c("Factor1", "Factor2")))
+  mut <- data.frame(BAP1 = rep(c(0L, 1L), each = 30), row.names = ids)
+
+  # Act / Assert
+  expect_error(fn_annotate_mutation(fm[1:20, , drop = FALSE], mut, genes = "BAP1"),
+               "overlaps only 20")
+  expect_error(fn_annotate_mutation(fm, mut, genes = "NOTAGENE"),
+               "none of the requested genes")
 })
 ```
 
@@ -2682,11 +2840,23 @@ fn_annotate_mutation <- function(factor_matrix, mut_annot,
                                  genes = DRIVER_GENES) {
   stopifnot(is.matrix(factor_matrix), is.data.frame(mut_annot))
   common <- intersect(rownames(factor_matrix), rownames(mut_annot))
-  stopifnot(length(common) >= MIN_MUT_ANNOT_SAMPLES)
+  # A bare stopifnot reports only the failed predicate — neither the actual
+  # overlap nor the likeliest cause (two different ID spaces).
+  if (length(common) < MIN_MUT_ANNOT_SAMPLES) {
+    stop("mutation annotation overlaps only ", length(common), " of ",
+         nrow(factor_matrix), " factor samples (need >= ",
+         MIN_MUT_ANNOT_SAMPLES, "); check that both use harmonised ",
+         PATIENT_BARCODE_LEN, "-char patient IDs")
+  }
 
-  fm    <- factor_matrix[common, , drop = FALSE]
-  mm    <- mut_annot[common, , drop = FALSE]
-  genes <- intersect(genes, colnames(mm))
+  fm      <- factor_matrix[common, , drop = FALSE]
+  mm      <- mut_annot[common, , drop = FALSE]
+  missing <- setdiff(genes, colnames(mm))
+  genes   <- intersect(genes, colnames(mm))
+  if (length(genes) < 1L) {
+    stop("none of the requested genes are columns of mut_annot; missing: ",
+         paste(missing, collapse = ", "))
+  }
 
   rows <- lapply(genes, function(g) fn_test_factor_gene(fm, as.integer(mm[[g]]), g))
   out  <- do.call(rbind, rows)
@@ -2696,6 +2866,22 @@ fn_annotate_mutation <- function(factor_matrix, mut_annot,
 
 #' Wilcoxon rank-sum of every factor against one binary mutation vector.
 fn_test_factor_gene <- function(factor_matrix, status, gene) {
+  # A driver gene can legitimately be constant here: Module 1 GUARANTEES that a
+  # gene absent from the MAF becomes an all-zero column, and a low-frequency
+  # gene can be 0% or 100% mutant in a restricted cohort. wilcox.test() would
+  # abort the whole mutation_factor_annot target with "grouping factor must
+  # have exactly 2 levels". NA rows keep the gene visible; p.adjust() and
+  # order() both propagate NA.
+  if (length(unique(status[!is.na(status)])) < 2L) {
+    return(data.frame(
+      gene       = gene,
+      factor     = colnames(factor_matrix),
+      p_value    = NA_real_,
+      median_wt  = NA_real_,
+      median_mut = NA_real_,
+      stringsAsFactors = FALSE
+    ))
+  }
   do.call(rbind, lapply(colnames(factor_matrix), function(fn) {
     vals <- factor_matrix[, fn]
     wt   <- stats::wilcox.test(vals ~ status)
@@ -2734,11 +2920,14 @@ git commit -m "feat: annotate MOFA factors with BAP1/PBRM1 mutation status (not 
 - Consumes: targets `rna_mat`, `methyl_mat`, `cnv_mat`, `mut_annot` (Module 1); all `fn_*` from Task 2.1–2.6 (sourced via `R/functions_integrate.R`).
 - Produces: targets `mofa_model`, `mofa_factors`, `mofa_varexp`, `subtypes_mofa`, `snf_clusters`, `concordance`, `mutation_factor_annot` — consumed by Modules 3, 4, 5.
 
-- [ ] **Step 1: Ensure MOFA2 + SNFtool are declared in `tar_option_set`.**
-In `_targets.R`, confirm the `packages` argument includes them (add if absent):
+- [ ] **Step 1: Declare MOFA2 / reticulate / SNFtool PER-TARGET, not globally.**
+Leave `tar_option_set(packages = ...)` light. A global entry makes EVERY target
+— including `scaffold_env_check` and all of Module 1 — unbuildable on a machine
+without those packages (`could not find packages MOFA2, reticulate in library
+paths`), which is exactly the rule the `methyl_anno` target already documents.
 ```r
 tar_option_set(
-  packages = c("MultiAssayExperiment", "MOFA2", "SNFtool", "reticulate"),
+  packages = c("MultiAssayExperiment"),
   format   = "rds"
 )
 ```
@@ -2746,16 +2935,24 @@ tar_option_set(
 - [ ] **Step 2: Add the Module 2 targets to the `list(...)` in `_targets.R`.**
 ```r
   # --- Module 2: integrate ---
+  # mofa_model needs MOFA2 + reticulate to TRAIN; mofa_factors / mofa_varexp
+  # need the MOFA2 namespace so the RDS-stored S4 object deserialises and
+  # methods::is(x, "MOFA") resolves. Everything downstream works on plain
+  # matrices and factors, so it stays light.
   tar_target(
     mofa_model,
-    fn_run_mofa(list(RNA = rna_mat, Methylation = methyl_mat, CNV = cnv_mat))
+    fn_run_mofa(list(RNA = rna_mat, Methylation = methyl_mat, CNV = cnv_mat)),
+    packages = c(tar_option_get("packages"), "MOFA2", "reticulate")
   ),
-  tar_target(mofa_factors, fn_extract_factors(mofa_model)),
-  tar_target(mofa_varexp,  fn_variance_explained(mofa_model)),
+  tar_target(mofa_factors, fn_extract_factors(mofa_model),
+             packages = c(tar_option_get("packages"), "MOFA2")),
+  tar_target(mofa_varexp,  fn_variance_explained(mofa_model),
+             packages = c(tar_option_get("packages"), "MOFA2")),
   tar_target(subtypes_mofa, fn_assign_subtypes(mofa_factors)),
   tar_target(
     snf_clusters,
-    fn_run_snf(list(RNA = rna_mat, Methylation = methyl_mat, CNV = cnv_mat))
+    fn_run_snf(list(RNA = rna_mat, Methylation = methyl_mat, CNV = cnv_mat)),
+    packages = c(tar_option_get("packages"), "SNFtool")
   ),
   tar_target(concordance, fn_cluster_concordance(subtypes_mofa, snf_clusters)),
   tar_target(mutation_factor_annot, fn_annotate_mutation(mofa_factors, mut_annot)),
@@ -2797,6 +2994,46 @@ Rscript -e '
 git add _targets.R
 git commit -m "feat: wire MOFA2/SNF integration targets (factors, subtypes, concordance)"
 ```
+
+**Phase 2 exit criteria:** all Module-2 logic lives in `R/functions_integrate.R` and every
+integration target is wired into `_targets.R` — `mofa_model`, `mofa_factors`, `mofa_varexp`,
+`subtypes_mofa`, `snf_clusters`, `concordance`, `mutation_factor_annot`. MOFA2 is the MAIN
+integration and SNF a cheap second opinion: nothing downstream consumes `snf_clusters` except
+`fn_cluster_concordance`, which compares the two partitions by adjusted Rand index (this replaces
+the old "consensus clustering" framing). Mutation is an EXTERNAL LABEL only — `mut_annot` enters
+through `fn_annotate_mutation` and is never a MOFA view. MOFA2/reticulate/SNFtool are declared
+PER-TARGET, never in `tar_option_set(packages = ...)`, so the scaffold and Module-1 targets stay
+runnable on a machine without them (same attach-scope rule as `METHYL_ANNO_PKG`). SNF square-roots
+`SNFtool::dist2()` before `affinityMatrix()` — `dist2` returns SQUARED euclidean distance and
+feeding squares into a Gaussian kernel is a silent statistical error, not a rescaling. Concordance
+aligns the two label vectors BY SAMPLE NAME before comparing, never positionally.
+
+**Verification split (important, and stated rather than implied):** the MOFA-dependent tests carry
+`skip_if_no_mofapy2()` and therefore SKIP on any machine without the Python backend. That is by
+design, but it means `fn_run_mofa` / `fn_extract_factors` / `fn_variance_explained` are UNEXECUTED
+outside a container. `.github/workflows/verify-module2.yml` closes the gap: it runs the whole suite
+with mofapy2 present and ASSERTS the skip count is zero (a surviving skip fails the job), then
+builds Modules 1+2 on the real snapshot and reports variance explained, subtype sizes, the MOFA-vs-SNF
+ARI and the factor↔driver-mutation association.
+
+**Phase 2 exit criteria — STATUS: VERIFIED ON REAL DATA.** GitHub Actions run 30718392588
+(2026-08-01, `bioconductor/bioconductor_docker:RELEASE_3_23`) lifted the mofapy2 skips (suite ran
+clean, zero surviving skips) and built all 23 targets in 11.1 min against the frozen snapshot:
+
+- `mofa_model` trained in 8m 19s, 206 iterations, converged (ΔELBO 0.0004%), 15 factors on n=524.
+- Missingness measured, not assumed: `rna_mat` and `cnv_mat` are 100% complete; `methyl_mat` is
+  91.4% complete (432 of 5000 CpGs carry a non-finite value, 0.123% of cells). SNF therefore drops
+  8.6% of methylation features — small enough that the MOFA-vs-SNF comparison stays fair, which is
+  exactly why the figure is reported rather than assumed.
+- Subtypes are IMBALANCED: S1=20, S2=306, S3=76, S4=122. SNF: C1=257, C2=30, C3=215, C4=22.
+- Two-method concordance **ARI = 0.351** — moderate, not high. Report it as such.
+- Mutation-as-external-label produced one association surviving BH correction:
+  **BAP1 ↔ Factor14, p = 4.5e-05, q = 0.004** (median factor score −0.079 wild-type vs +0.575
+  mutant). Caveat that must travel with it: Factor14 is a MINOR axis (0.22% RNA / 0.31%
+  methylation / 1.91% CNV variance explained). BAP1↔Factor3 is on a much larger axis
+  (1.67/3.57/7.45%) but does not survive FDR (q = 0.057). No external cohort validates any of this.
+
+Raw output is committed at `docs/results/module2-run-30718392588.txt`.
 
 ---
 

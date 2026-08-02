@@ -20,3 +20,30 @@ FIXTURE_DIR <- file.path(root, "tests", "fixtures")
 load_fixture <- function(name) {
   readRDS(testthat::test_path("..", "fixtures", name))
 }
+
+# --- Module 2 (integration) test helpers ---
+# Named list of features x samples matrices on the shared sample columns,
+# in the exact view shape fn_run_mofa / fn_run_snf consume. Mutation is
+# deliberately absent: it is an external label, never a MOFA view.
+load_view_list <- function() {
+  rna    <- readRDS(testthat::test_path("..", "fixtures", "rna_subset.rds"))
+  methyl <- readRDS(testthat::test_path("..", "fixtures", "methyl_subset.rds"))
+  cnv    <- readRDS(testthat::test_path("..", "fixtures", "cnv_subset.rds"))
+  common <- Reduce(intersect, list(colnames(rna), colnames(methyl), colnames(cnv)))
+  list(
+    RNA         = rna[, common, drop = FALSE],
+    Methylation = methyl[, common, drop = FALSE],
+    CNV         = cnv[, common, drop = FALSE]
+  )
+}
+
+# MOFA2 trains through reticulate + the mofapy2 Python module. On a bare host
+# neither is present, so MOFA-dependent tests SKIP; they run for real in the
+# container (RETICULATE_PYTHON + mofapy2, use_basilisk = FALSE).
+skip_if_no_mofapy2 <- function() {
+  testthat::skip_if_not(
+    requireNamespace("reticulate", quietly = TRUE) &&
+      reticulate::py_module_available("mofapy2"),
+    "mofapy2 not available in reticulate Python"
+  )
+}

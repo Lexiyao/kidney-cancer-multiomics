@@ -25,7 +25,12 @@ tar_option_set(
   # Module 1 adds MultiAssayExperiment: its S4 `[` / `[[` methods are only
   # dispatchable when the package is ATTACHED (loading the namespace is not
   # enough), and mae_qc / the *_raw assay targets subset the MAE directly.
-  packages = "MultiAssayExperiment",
+  # Module 2's MOFA2 / reticulate / SNFtool are deliberately NOT listed here:
+  # a global entry makes EVERY target — including scaffold_env_check and all of
+  # Module 1 — unbuildable on a machine without them ("could not find packages
+  # MOFA2, reticulate in library paths"), which is the same rule the methyl_anno
+  # target documents below. They are declared per-target instead.
+  packages = c("MultiAssayExperiment"),
   format = "rds"
 )
 
@@ -120,5 +125,34 @@ list(
 
   tar_target(cnv_mat, fn_align_samples(fn_prep_cnv(cnv_raw), common_ids)),
 
-  tar_target(mut_annot, fn_extract_mutation_status(mae_qc, DRIVER_GENES))
+  tar_target(mut_annot, fn_extract_mutation_status(mae_qc, DRIVER_GENES)),
+
+  # --- Module 2: integrate --------------------------------------------------
+  # MOFA2 is the MAIN integration; SNF is a cheap second opinion and the two
+  # partitions are compared by ARI (`concordance`) instead of the old
+  # "consensus clustering" framing. mut_annot is an EXTERNAL LABEL for factor
+  # interpretation only — it is never one of the three MOFA views.
+  #
+  # Same attach-not-namespace, declare-per-target rule as methyl_anno above.
+  # mofa_model needs MOFA2 + reticulate to TRAIN; mofa_factors / mofa_varexp
+  # need the MOFA2 namespace so the RDS-stored S4 object deserialises and
+  # methods::is(x, "MOFA") resolves. Everything downstream of them works on
+  # plain matrices and factors, so it stays light.
+  tar_target(
+    mofa_model,
+    fn_run_mofa(list(RNA = rna_mat, Methylation = methyl_mat, CNV = cnv_mat)),
+    packages = c(tar_option_get("packages"), "MOFA2", "reticulate")
+  ),
+  tar_target(mofa_factors, fn_extract_factors(mofa_model),
+             packages = c(tar_option_get("packages"), "MOFA2")),
+  tar_target(mofa_varexp,  fn_variance_explained(mofa_model),
+             packages = c(tar_option_get("packages"), "MOFA2")),
+  tar_target(subtypes_mofa, fn_assign_subtypes(mofa_factors)),
+  tar_target(
+    snf_clusters,
+    fn_run_snf(list(RNA = rna_mat, Methylation = methyl_mat, CNV = cnv_mat)),
+    packages = c(tar_option_get("packages"), "SNFtool")
+  ),
+  tar_target(concordance, fn_cluster_concordance(subtypes_mofa, snf_clusters)),
+  tar_target(mutation_factor_annot, fn_annotate_mutation(mofa_factors, mut_annot))
 )
