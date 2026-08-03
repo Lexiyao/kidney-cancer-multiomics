@@ -79,7 +79,17 @@ jobs:
 
       # LEVEL 1 — the MOFA tests that SKIP on the dev machine must now RUN.
       # A remaining MOFA skip here would mean the guard is misfiring and the
-      # code path is still unexecuted, so assert the skip count is zero.
+      # code path is still unexecuted, so assert the MOFA skip count is zero.
+      #
+      # SCOPE: the zero-skip gate covers the mofapy2 guard ONLY. Module 3's
+      # credibility anchors (test names prefixed "ANCHOR:") read the frozen
+      # `sanity_results` target, and at this point in the job the checkout
+      # carries no `_targets/meta` — the store is a release asset and the
+      # LEVEL 2 `tar_make` has not run yet — so those tests NECESSARILY skip
+      # here. A blanket `sum(df$skipped) > 0` therefore aborted the whole job
+      # before the real-data build, with a message blaming MOFA for a Module 3
+      # skip (MEASURED on the dev machine: 11 skips = 2 mofapy2 + 9 anchors).
+      # The anchors are re-run after `tar_make` below, where they must EXECUTE.
       - name: Full testthat suite with mofapy2 present (MOFA skips must lift)
         run: |
           R -q -e '
@@ -87,16 +97,22 @@ jobs:
             cat("### mofapy2 visible to reticulate -> MOFA tests will NOT skip\n")
             res <- testthat::test_dir("tests/testthat", reporter = "summary", stop_on_failure = FALSE)
             df  <- as.data.frame(res)
+            anchor <- grepl("^ANCHOR:", df$test)
             cat("\n### SUITE TOTALS\n")
             cat("passed :", sum(df$passed), "\n")
             cat("failed :", sum(df$failed), "\n")
-            cat("skipped:", sum(df$skipped), "\n")
-            if (sum(df$skipped) > 0) {
+            cat("skipped:", sum(df$skipped),
+                " (of which Module 3 anchors:", sum(df$skipped[anchor]), ")\n")
+            if (sum(df$skipped[anchor]) > 0) {
+              cat("\n### Module 3 anchors skipped — EXPECTED at LEVEL 1 (no _targets store yet).\n")
+              cat("### They are asserted after tar_make, where they must execute.\n")
+            }
+            if (sum(df$skipped[!anchor]) > 0) {
               cat("\n### STILL-SKIPPED TESTS (investigate — the MOFA guard should have lifted)\n")
-              print(df[df$skipped > 0, c("file", "test")])
+              print(df[!anchor & df$skipped > 0, c("file", "test")])
             }
             if (sum(df$failed) > 0) quit(status = 1)
-            if (sum(df$skipped) > 0) stop("MOFA tests still skipped with mofapy2 present")
+            if (sum(df$skipped[!anchor]) > 0) stop("MOFA tests still skipped with mofapy2 present")
           '
 
       # LEVEL 2 — real data. Continue on error so the artifacts and the level-1
@@ -169,6 +185,47 @@ jobs:
             emit("### FACTOR <-> DRIVER-MUTATION ASSOCIATION (mutation as external label)")
             emit(paste(capture.output(print(ma)), collapse = "\n"))
             close(out)
+          '
+
+      # LEVEL 3 — the Module 3 credibility anchors, against the store that
+      # LEVEL 2 just built. This is the ONLY place they execute: they read the
+      # frozen `sanity_results` target, so a skip here would mean the anchor
+      # "never runs anywhere" — it skips locally by design and would skip in the
+      # container by accident. Deliberately NOT continue-on-error: a red anchor
+      # on real data is the finding this phase exists to surface.
+      - name: Module 3 credibility anchors against the real sanity_results
+        run: |
+          R -q -e '
+            res <- testthat::test_file("tests/testthat/test-sanity.R",
+                                       reporter = "summary", stop_on_failure = FALSE)
+            df  <- as.data.frame(res)
+            anchor <- grepl("^ANCHOR:", df$test)
+            cat("\n### MODULE 3 ANCHORS\n")
+            cat("anchors :", sum(anchor), "\n")
+            cat("passed  :", sum(df$passed[anchor]), "\n")
+            cat("failed  :", sum(df$failed[anchor]), "\n")
+            cat("skipped :", sum(df$skipped[anchor]), "\n")
+            sr <- targets::tar_read(sanity_results)
+            cat("\n### SANITY VERDICTS ON REAL DATA\n")
+            for (nm in names(sr)) {
+              cat(sprintf("%-15s pass = %s | %s\n", nm, sr[[nm]]$pass, sr[[nm]]$label))
+            }
+            cat("\n### mutation frequencies vs published ranges\n")
+            print(sr$mutation_freq$per_gene)
+            cat("\n### BAP1 survival\n")
+            print(sr$bap1_survival[c("hr", "ci_low", "ci_high", "p_value", "n")])
+            cat("\n### methylation strata\n")
+            print(sr$methyl_strata[c("n_strata", "n_cpg_used", "silhouette",
+                                     "kw_p_value", "platform_ari", "platform_p")])
+            cat("\n### ccA/ccB signature\n")
+            print(sr$ccab_signature[c("silhouette", "separation_p_value",
+                                      "anticorr_rho", "anticorr_p_value",
+                                      "n_ccb_used", "n_cca_used")])
+            if (sum(df$skipped[anchor]) > 0) {
+              print(df[anchor & df$skipped > 0, c("file", "test")])
+              stop("Module 3 anchors SKIPPED after tar_make — they must execute here")
+            }
+            if (sum(df$failed) > 0) quit(status = 1)
           '
 
       - name: Collect targets metadata

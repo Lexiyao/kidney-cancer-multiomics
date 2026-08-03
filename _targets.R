@@ -99,10 +99,17 @@ list(
     n
   }),
 
-  tar_target(rna_mat, fn_top_variable(
-    fn_align_samples(fn_log2_normalise_rna(rna_raw), common_ids),
-    N_TOP_GENES
-  )),
+  # rna_full is the log2-normalised, cohort-aligned expression matrix BEFORE the
+  # top-variable filter (~20500 genes x 524). Split out of rna_mat because a
+  # PUBLISHED marker panel must not be subject to a data-driven feature filter:
+  # Module 3's ccA/ccB check scores the Brannon 2010 proxy panels, and any
+  # low-variance member (EPAS1, KDR and FLT1 are the likely casualties) would
+  # otherwise be silently dropped by fn_top_variable, degrading a 6-vs-6
+  # comparison to a 2-vs-2 one with nothing in the result to say so.
+  # rna_mat is unchanged — the same expression, now derived from rna_full.
+  tar_target(rna_full,
+             fn_align_samples(fn_log2_normalise_rna(rna_raw), common_ids)),
+  tar_target(rna_mat, fn_top_variable(rna_full, N_TOP_GENES)),
 
   # Restrict to the CpGs the merge would keep anyway and drop SNP/sex probes
   # BEFORE the M-value transform. fn_beta_to_mvalue realises the HDF5-backed
@@ -123,9 +130,83 @@ list(
     N_TOP_CPGS
   )),
 
+  # Per-sample assay platform, in the column order of methyl_mat. Module 3's
+  # m1-m4 check needs it because methyl_merged is cbind(HM27, HM450) with NO
+  # batch correction, so the strongest axis in the merged matrix is the assay
+  # rather than the biology, and a k-means partition that merely reproduces the
+  # platform would otherwise report a green m1-m4 verdict.
+  #
+  # The rule below MIRRORS fn_align_samples exactly: it keeps the FIRST column
+  # per patient (`!duplicated`) and methyl_merged puts HM27 first, so a case
+  # assayed on both platforms is carried by its HM27 column. colnames(methyl_mat)
+  # is `common_ids` by construction, hence the names.
+  tar_target(methyl_platform, {
+    hm27_ids <- fn_harmonise_ids(colnames(meth27_raw))
+    p <- factor(ifelse(common_ids %in% hm27_ids, "HM27", "HM450"),
+                levels = METHYL_PLATFORMS)
+    names(p) <- common_ids
+    stopifnot(length(unique(p)) == length(METHYL_PLATFORMS))
+    p
+  }),
+
   tar_target(cnv_mat, fn_align_samples(fn_prep_cnv(cnv_raw), common_ids)),
 
   tar_target(mut_annot, fn_extract_mutation_status(mae_qc, DRIVER_GENES)),
+
+  # --- Module 3 prerequisite: shared clinical survival frame ----------------
+  # Derived once from colData(mae_qc); Module 4's survival model MUST reuse
+  # this target instead of building its own survival_df, so the survival
+  # columns (sample_id / os_time / os_event) stay consistent across the DAG.
+  # os_event = 1 for deceased patients; os_time uses days_to_death for events
+  # and days_to_last_followup for censored cases.
+  #
+  # TWO DEPARTURES from the plan's literal block, both required for the BAP1
+  # positive control to be capable of failing at all:
+  #
+  #  1. The death set is VITAL_STATUS_DEAD_VALUES (= dead / deceased / "1"),
+  #     not a literal c("dead", "deceased"). The narrower set is contradicted
+  #     by this repo's own MEASURED census (run 30708943504) and by the design
+  #     spec, and on a snapshot storing vital_status as 0/1 it matches nothing
+  #     -> zero events -> a survival anchor that cannot fail.
+  #  2. The required colData columns are checked up front. `cd$days_to_death`
+  #     on a snapshot that spells a column differently returns NULL, and the
+  #     ifelse() below then silently turns a whole arm into NA — censored cases
+  #     would vanish and the anchor would be fitted on deaths only. Fail loudly.
+  #
+  # IDs are harmonised to patient barcodes because mut_annot, common_ids and
+  # every aligned matrix in this DAG are keyed that way; an unharmonised
+  # rowname would join to nothing and merge() would silently return 0 rows.
+  #
+  # SCOPE: this frame covers every case in colData (536), NOT just the 524-case
+  # main cohort. fn_check_bap1_survival inner-joins it to mut_annot (417), so
+  # the BAP1 anchor is evaluated on the mutation subset by construction. Module
+  # 4 must restrict to `common_ids` itself before fitting the survival model.
+  tar_target(
+    clinical,
+    {
+      cd <- as.data.frame(MultiAssayExperiment::colData(mae_qc))
+      required_cols <- c("vital_status", "days_to_death", "days_to_last_followup")
+      absent <- setdiff(required_cols, colnames(cd))
+      if (length(absent) > 0L) {
+        stop("colData(mae_qc) lacks required survival columns: ",
+             paste(absent, collapse = ", "))
+      }
+      days_to_death    <- suppressWarnings(as.numeric(cd$days_to_death))
+      days_to_followup <- suppressWarnings(as.numeric(cd$days_to_last_followup))
+      os_event <- as.integer(
+        tolower(as.character(cd$vital_status)) %in% VITAL_STATUS_DEAD_VALUES
+      )
+      os_time  <- ifelse(os_event == 1L, days_to_death, days_to_followup)
+      sample_id <- fn_harmonise_ids(rownames(cd))
+      stopifnot(!anyDuplicated(sample_id))
+      data.frame(
+        sample_id = sample_id,
+        os_time   = os_time,
+        os_event  = os_event,
+        stringsAsFactors = FALSE
+      )
+    }
+  ),
 
   # --- Module 2: integrate --------------------------------------------------
   # MOFA2 is the MAIN integration; SNF is a cheap second opinion and the two
@@ -154,5 +235,26 @@ list(
     packages = c(tar_option_get("packages"), "SNFtool")
   ),
   tar_target(concordance, fn_cluster_concordance(subtypes_mofa, snf_clusters)),
-  tar_target(mutation_factor_annot, fn_annotate_mutation(mofa_factors, mut_annot))
+  tar_target(mutation_factor_annot, fn_annotate_mutation(mofa_factors, mut_annot)),
+
+  # --- Module 3: sanity-check positive controls (credibility anchor) --------
+  # Four literature-anchored ccRCC checks, each returning a structured pass/fail
+  # object (spec section 7). Computed ONCE on the frozen real data and cached;
+  # tests/testthat/test-sanity.R reads this target and asserts it against the
+  # published literature. Light on packages: every fn_check_* works on plain
+  # matrices/data.frames, so no per-target `packages` entry is needed.
+  tar_target(
+    sanity_results,
+    list(
+      mutation_freq  = fn_check_mutation_freq(mut_annot),
+      bap1_survival  = fn_check_bap1_survival(clinical, mut_annot),
+      # methyl_platform is REQUIRED here: without it the m1-m4 verdict cannot
+      # distinguish the published biology from the uncorrected HM27/HM450 batch.
+      methyl_strata  = fn_check_methyl_strata(methyl_mat,
+                                              platform = methyl_platform),
+      # rna_full, NOT rna_mat: the published ccA/ccB panels must not pass
+      # through the top-5000-variable filter (see the rna_full target above).
+      ccab_signature = fn_check_ccab_signature(rna_full)
+    )
+  )
 )

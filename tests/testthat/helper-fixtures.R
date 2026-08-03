@@ -5,6 +5,12 @@ root <- testthat::test_path("..", "..")
 
 source(file.path(root, "R", "constants.R"))
 
+# This glob already covers every module's function file, INCLUDING Module 3's
+# R/functions_sanity.R. The plan's Task 3.2 asks for an explicit
+# `source(test_path("..", "..", "R", "functions_sanity.R"))` here, but that
+# would source the file a SECOND time and re-create the very duplicate-
+# definition churn the plan's own note warns against. The glob is the single
+# source of truth; new R/functions_*.R files need no helper edit.
 fn_files <- list.files(
   file.path(root, "R"),
   pattern = "^functions_.*\\.R$",

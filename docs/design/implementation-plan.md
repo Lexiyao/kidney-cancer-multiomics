@@ -248,7 +248,8 @@ Expected output: empty (clean tree).
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: constants `SNAPSHOT_DATE`, `GENOME_BUILD`, `DRIVER_GENES`, `MUTATION_FREQ_RANGES`, `METHYL_PLATFORMS`, `EPV_CAP`, `COHORT_SIZES` (all Module 3/4 consume these); the testthat entrypoint + `helper-fixtures.R` that auto-sources `R/constants.R` and any `R/functions_*.R`, exposing `FIXTURE_DIR`.
+- Produces: constants `SNAPSHOT_DATE`, `GENOME_BUILD`, `DRIVER_GENES`, `METHYL_PLATFORMS`, `EPV_CAP`, `COHORT_SIZES` (all Module 3/4 consume these); the testthat entrypoint + `helper-fixtures.R` that auto-sources `R/constants.R` and any `R/functions_*.R`, exposing `FIXTURE_DIR`.
+- **Does NOT produce a mutation-frequency range constant.** The single published anchor is `PUBLISHED_MUT_FREQ_RANGES`, defined in the Module 3 block by **Task 3.1**, and it must not be duplicated here — see the Step 4 note below.
 
 - [ ] **Step 1: Write the failing constants smoke test in `tests/testthat/test-utils.R`.**
 ```r
@@ -316,14 +317,16 @@ GENOME_BUILD <- "hg19"
 # --- ccRCC somatic driver genes (mutation used as annotation only, spec 6a) ---
 DRIVER_GENES <- c("VHL", "PBRM1", "SETD2", "BAP1", "MTOR", "KDM5C")
 
-# --- Published ccRCC mutation-frequency ranges (fraction of tumours) ---
-# Anchors for fn_check_mutation_freq (TCGA KIRC, Nature 2013; COSMIC).
-MUTATION_FREQ_RANGES <- list(
-  VHL   = c(0.40, 0.60),
-  PBRM1 = c(0.30, 0.45),
-  SETD2 = c(0.08, 0.15),
-  BAP1  = c(0.08, 0.15)
-)
+# --- Published ccRCC mutation-frequency ranges: see PUBLISHED_MUT_FREQ_RANGES
+# in the Module 3 block (Task 3.1). DO NOT define a second copy here. An earlier
+# `MUTATION_FREQ_RANGES` at this spot was a duplicate of the same published
+# anchor with DIFFERENT bounds (PBRM1 0.30-0.45 vs 0.28-0.45, SETD2 0.08-0.15 vs
+# 0.08-0.18, BAP1 0.08-0.15 vs 0.06-0.18) and UNNAMED bounds, which
+# fn_check_mutation_freq's `rng["low"]` / `rng["high"]` indexing resolves to NA.
+# It had zero consumers. Two names for one literature anchor is the
+# TOP_VARIABLE_GENES/N_TOP_GENES drift hazard again, so it is DELETED rather
+# than aliased, and tests/testthat/test-sanity.R asserts it stays deleted
+# (`expect_false(exists("MUTATION_FREQ_RANGES", inherits = TRUE))`). ---
 
 # --- Methylation platforms (merged on common CpGs; never HM450 alone) ---
 METHYL_PLATFORMS <- c("HM27", "HM450")
@@ -3043,6 +3046,8 @@ This phase is the credibility anchor and is built early (before the survival mod
 
 > All commands run from the repo root `/Users/yaozixi/Desktop/CV/kidney-cancer-multiomics`. Unit tests (3.2–3.5) run on inline fabricated data and always execute in CI; the credibility-anchor block (3.7) reads the frozen `sanity_results` target and executes wherever the `_targets` store is present (locally after `tar_make`, and in CI after the release-asset store restore).
 
+> **The `Step N` code blocks below are AS COMMITTED, not first drafts.** This phase is the credibility anchor, so a plan that still specified a superseded body would silently revert the hardening on any replay. Every deviation found while implementing Phase 3 is recorded in the task it belongs to, together with the measurement that motivated it. The `[ FAIL n | PASS n ]` counts in the TDD steps describe replaying a task with only the plan's own assertions in place; the committed `tests/testthat/test-sanity.R` carries substantially more, so the real totals are higher.
+
 ---
 
 ### Task 3.1 — Sanity constants (published ranges, gene panels, thresholds)
@@ -3053,7 +3058,8 @@ This phase is the credibility anchor and is built early (before the survival mod
 
 **Interfaces:**
 - Consumes: nothing (bootstrap constants).
-- Produces: `DRIVER_GENE_PANEL` (character[6]); `PUBLISHED_MUT_FREQ_RANGES` (named list of `c(low=, high=)` numeric[2]); `CCB_PROLIFERATION_MARKERS`, `CCA_ANGIOGENESIS_MARKERS` (character); `METHYL_N_STRATA` (integer, 4L); `SANITY_MIN_SILHOUETTE`, `SANITY_MAX_P` (numeric); `SANITY_SEED` (integer).
+- Produces: `DRIVER_GENE_PANEL` (an ALIAS of `DRIVER_GENES`, never a second literal); `PUBLISHED_MUT_FREQ_RANGES` (named list of `c(low=, high=)` numeric[2]); `CCB_PROLIFERATION_MARKERS`, `CCA_ANGIOGENESIS_MARKERS` (character); `METHYL_N_STRATA` (integer, 4L); `SANITY_MAX_PLATFORM_ARI`, `SANITY_MIN_SILHOUETTE`, `SANITY_MIN_SILHOUETTE_2D`, `SANITY_MAX_P`, `SANITY_MIN_COMPLETE_FRAC` (numeric); `SANITY_SEED`, `SANITY_MIN_MARKERS_PER_PANEL` (integer); `VITAL_STATUS_DEAD_VALUES` (character); and `MIN_OS_EVENTS` (integer), which sits with `EPV_CAP` in the model-complexity block rather than the Module 3 block.
+- **Collision resolution (load-bearing):** `DRIVER_GENES` is CANONICAL — `fn_extract_mutation_status`, `fn_annotate_mutation`, `_targets.R` and the fixture generator all consume it — so Task 3.1 defines `DRIVER_GENE_PANEL <- DRIVER_GENES` as an alias. Two literals would be the TOP_VARIABLE_GENES/N_TOP_GENES drift hazard again. Likewise `PUBLISHED_MUT_FREQ_RANGES` is the ONLY mutation-frequency anchor; the `MUTATION_FREQ_RANGES` that Task 0.2 once defined is deleted, not aliased.
 
 - [ ] **Step 1: Write the failing test.** Create `tests/testthat/test-sanity.R` with the constants test at the top:
 ```r
@@ -3088,14 +3094,21 @@ Expected (constants not yet defined):
 ```
 
 - [ ] **Step 3: Write minimal implementation.** Append to `R/constants.R`:
+> **AS COMMITTED.** The block below is the body actually in the repo, not the first draft: Phase 3 is the credibility anchor, so every deviation found while implementing it is recorded here rather than only in a code comment. Replaying this task reproduces the hardened version.
 ```r
 # --- Module 3: sanity-check positive controls -------------------------------
 
 # ccRCC somatic driver panel (TCGA KIRC, Nature 2013; PBRM1, Varela 2011).
-DRIVER_GENE_PANEL <- c("VHL", "PBRM1", "SETD2", "BAP1", "MTOR", "KDM5C")
+# COLLISION RESOLUTION: `DRIVER_GENES` (defined at the top of this file) is the
+# CANONICAL panel — fn_extract_mutation_status, fn_annotate_mutation, _targets.R
+# and the fixture generator all consume it. The plan's Phase-3 name is kept as
+# an ALIAS, not a second literal, so the two can never drift apart.
+DRIVER_GENE_PANEL <- DRIVER_GENES
 
 # Published somatic mutation-frequency ranges for ccRCC (fraction of tumours).
 # Sources: TCGA KIRC (Nature 2013), COSMIC, Ricketts et al. (Cell Rep 2018).
+# INDEPENDENT anchor: these bounds are set from the literature and must never
+# be widened to make an observed frequency fall inside them.
 PUBLISHED_MUT_FREQ_RANGES <- list(
   VHL   = c(low = 0.40, high = 0.60),
   PBRM1 = c(low = 0.28, high = 0.45),
@@ -3112,10 +3125,92 @@ CCA_ANGIOGENESIS_MARKERS  <- c("VEGFA", "CA9", "EPAS1", "ANGPT2", "KDR", "FLT1")
 # Number of TCGA KIRC DNA-methylation strata (m1-m4).
 METHYL_N_STRATA <- 4L
 
+# Maximum adjusted Rand index between the methylation k-means partition and the
+# ASSAY PLATFORM. methyl_mat is cbind(HM27, HM450) with NO batch correction
+# (fn_merge_methyl_platforms only column-binds), and platform is the strongest
+# single axis in merged 27k/450k M-values — so without this term the green light
+# "TCGA KIRC methylation resolves into m1-m4 strata" could be produced entirely
+# by the assay rather than by the published biology.
+#
+# MEASURED on constructed data (500 CpGs, 200 HM27-like + 324 HM450-like
+# samples): with iid noise, NO biological strata and only a per-platform mean
+# offset, the check returned pass = TRUE from offset 1.5 SD upward
+# (silhouette 0.122 / 0.164 / 0.222 at 1.5 / 2.0 / 3.0 SD, kruskal p = 2.7e-80),
+# with ARI(cluster, platform) = 0.504.
+#
+# CALIBRATION (four true strata spread evenly over both platforms): when k-means
+# recovered the true strata (ARI vs truth 1.000) the platform ARI was -0.003;
+# when it locked onto the assay instead (ARI vs truth 0.299) the platform ARI
+# was 0.532. The two regimes are cleanly bimodal, and 0.25 sits in the gap.
+#
+# This term makes the check STRICTER: it can only turn a green verdict red.
+SANITY_MAX_PLATFORM_ARI <- 0.25
+
+# Minimum published markers that must survive per ccA/ccB panel. A REFUSAL
+# FLOOR, not an anchor: it never touches SANITY_MIN_SILHOUETTE, SANITY_MAX_P or
+# the required direction of the ccA/ccB opposition, so it cannot turn a failing
+# check green. The previous floor of 2 let the "Brannon 2010 proxy" degrade to a
+# 2-gene-vs-2-gene comparison while returning an object indistinguishable from
+# the full 6-vs-6 run — and MEASURED on 20 structureless matrices, the false-
+# green rate rises as the panel shrinks (6+6: 0/20 pass; 2+2: 1/20).
+SANITY_MIN_MARKERS_PER_PANEL <- 4L
+
 # Sanity-check decision thresholds.
+#
+# SANITY_MIN_SILHOUETTE applies to the HIGH-DIMENSIONAL methylation clustering
+# only (a ~4568-dimensional 4-means, where iid noise gives ~0.005 — see the
+# fn_check_methyl_strata negative control). It must NOT be reused for the 2-D
+# ccA/ccB clustering: the two have completely different null distributions, and
+# at 0.10 the ccA/ccB silhouette assertion could not fail on any input the
+# function accepts, while still being carried in `pass` and shown on the
+# dashboard as if it were evidence.
 SANITY_MIN_SILHOUETTE <- 0.10
+
+# Separately CALIBRATED threshold for the 2-D (ccB-score, ccA-score) 2-means.
+# In two dimensions k-means always splits a blob, so this statistic is large
+# under the null and needs its own floor, set ABOVE the measured null ceiling.
+#
+# MEASURED, NOT ASSUMED (R 4.6.0, this repo's own fn_check_ccab_signature,
+# 2026-08-02): 200 structureless matrices at each of n = 40 / 100 / 524 — all 12
+# published markers present, iid noise, NO ccA/ccB structure whatsoever:
+#
+#   n =  40  silhouette min 0.284  median 0.350  q99 0.434  MAX 0.466
+#   n = 100  silhouette min 0.295  median 0.334  q99 0.379  MAX 0.387
+#   n = 524  silhouette min 0.298  median 0.318  q99 0.341  MAX 0.349
+#
+# Genuine ccA/ccB opposition, weakest effect tested (a 1-SD-unit shift between
+# the two halves, n = 200, 40 replicates): silhouette 0.490-0.562.
+#
+# 0.50 therefore sits above the null ceiling (0.466) and below the weakest real
+# structure (0.490). It makes the check STRICTER, never more permissive.
+SANITY_MIN_SILHOUETTE_2D <- 0.50
+
 SANITY_MAX_P          <- 0.05
 SANITY_SEED           <- 42L
+
+# Vital-status values that encode an overall-survival EVENT (death), lower-cased
+# before matching. This is the decode the repo has ALREADY VERIFIED on the real
+# snapshot: GitHub Actions run 30708943504 read colData(mae)$vital_status with
+# `tolower(as.character(v)) %in% c("dead", "deceased", "1")` and obtained 177
+# events over 536 cases / 173 over the 524-case main cohort. The design spec and
+# this file's EPV block both state the same set.
+#
+# "1" is LOAD-BEARING and must not be dropped: curatedTCGAData stores
+# vital_status numerically on some cohorts, and a {dead, deceased} test on a
+# 0/1 column matches NOTHING. That yields zero events, and a survival positive
+# control fitted on zero events cannot fail — the exact silent-green failure
+# mode the Module 3 suite exists to prevent.
+VITAL_STATUS_DEAD_VALUES <- c("dead", "deceased", "1")
+
+# Guard for fn_check_methyl_strata: fraction of CpGs that must be complete.
+# stats::kmeans errors on NA/NaN/Inf and the real methyl_mat is only 91.4%
+# complete (432/5000 CpGs carry a non-finite value), so incomplete CpGs are
+# dropped before clustering — the same resolution already applied to SNF
+# (MIN_SNF_COMPLETE_FRAC). This is DATA HYGIENE, not an anchor: it never
+# touches METHYL_N_STRATA, SANITY_MIN_SILHOUETTE or SANITY_MAX_P, so it cannot
+# make a failing stratum check pass. A matrix gutted by missingness stops
+# loudly rather than clustering its remnants into a silent green.
+SANITY_MIN_COMPLETE_FRAC <- 0.5
 ```
 
 - [ ] **Step 4: Run test to verify it PASSES.**
@@ -3143,7 +3238,7 @@ git commit -m "feat: add ccRCC sanity-check constants (published ranges, gene pa
 
 **Interfaces:**
 - Consumes: `DRIVER_GENE_PANEL`, `PUBLISHED_MUT_FREQ_RANGES` (Task 3.1); `mut_annot` — a `data.frame` with column `sample_id` (character) plus one logical column per driver gene (`VHL`, `PBRM1`, `SETD2`, `BAP1`, …), `n=417` (Module 2).
-- Produces: `fn_check_mutation_freq(mut_annot, gene_panel = DRIVER_GENE_PANEL, ranges = PUBLISHED_MUT_FREQ_RANGES)` → `list(label = chr, per_gene = data.frame(gene, observed, low, high, pass), pass = logical)`.
+- Produces: `fn_check_mutation_freq(mut_annot, gene_panel = DRIVER_GENE_PANEL, ranges = PUBLISHED_MUT_FREQ_RANGES)` → `list(label = chr, per_gene = data.frame(gene, observed, low, high, pass), n = integer, pass = logical)`. `gene_panel` is LOAD-BEARING (the scored set is the three-way intersection with `names(ranges)` and the columns present); `n` is the denominator, without which `mean()` over 20 rows and over 417 are indistinguishable and a collapsed cohort passes every anchor. Also produces `fn_capture_rng()`, the RNG-stream guard used by Tasks 3.4/3.5.
 
 - [ ] **Step 1: Create the function stub and wire the test helper.** Create `R/functions_sanity.R`:
 ```r
@@ -3216,36 +3311,127 @@ Expected:
 ```
 
 - [ ] **Step 4: Write minimal implementation.** Append to `R/functions_sanity.R`:
+> **AS COMMITTED.** The block below is the body actually in the repo, not the first draft: Phase 3 is the credibility anchor, so every deviation found while implementing it is recorded here rather than only in a code comment. Replaying this task reproduces the hardened version.
 ```r
-#' Check ccRCC driver mutation frequencies against published ranges.
-#' @param mut_annot data.frame with sample_id + one logical column per gene.
-#' @return list(label, per_gene, pass).
-fn_check_mutation_freq <- function(mut_annot,
-                                   gene_panel = DRIVER_GENE_PANEL,
-                                   ranges = PUBLISHED_MUT_FREQ_RANGES) {
-  stopifnot(is.data.frame(mut_annot), "sample_id" %in% names(mut_annot))
-  genes <- intersect(names(ranges), colnames(mut_annot))
-  if (length(genes) == 0L) {
-    stop("mut_annot contains none of the ranged driver genes")
+#' Keep only CpGs that are finite in every sample.
+#'
+#' `stats::kmeans` errors outright on NA/NaN/Inf, and the real Module 1
+#' `methyl_mat` is 91.4% complete (432/5000 CpGs carry a non-finite value from
+#' failed probes), so without this the m1-m4 anchor cannot run on the data it
+#' exists to check. Identical failure mode and identical resolution to
+#' `fn_complete_features` for SNF; imputation is deliberately NOT used, because
+#' invented values in a positive control would be invented evidence.
+#'
+#' Dropping is per-CpG, never per-sample: every case stays in the stratum
+#' assignment. The floor is the surviving FRACTION, so a matrix gutted by
+#' missingness (e.g. one bad sample turning most CpGs incomplete) stops loudly
+#' instead of clustering its remnants into a silent green.
+#'
+#' @param methyl_mat CpGs x samples numeric matrix.
+#' @param min_frac minimum fraction of CpGs that must be complete.
+#' @return new matrix restricted to complete CpGs (inputs unchanged).
+fn_complete_cpgs <- function(methyl_mat, min_frac = SANITY_MIN_COMPLETE_FRAC) {
+  keep <- apply(is.finite(methyl_mat), 1L, all)
+  n_keep <- sum(keep)
+  if (n_keep < 2L || n_keep < min_frac * nrow(methyl_mat)) {
+    stop(sprintf(
+      "methyl_mat retains %d of %d complete CpGs (%.1f%%, floor %.0f%%)",
+      n_keep, nrow(methyl_mat), 100 * n_keep / nrow(methyl_mat), 100 * min_frac
+    ))
   }
-  rows <- lapply(genes, function(g) {
-    observed <- mean(as.logical(mut_annot[[g]]), na.rm = TRUE)
-    rng <- ranges[[g]]
-    data.frame(
-      gene     = g,
-      observed = observed,
-      low      = unname(rng["low"]),
-      high     = unname(rng["high"]),
-      pass     = observed >= rng["low"] & observed <= rng["high"],
-      stringsAsFactors = FALSE
+  methyl_mat[keep, , drop = FALSE]
+}
+
+#' Recover the four TCGA KIRC DNA-methylation strata (m1-m4).
+#'
+#' FALSIFIABILITY, measured on constructed data, so the limits are on record:
+#' only the SILHOUETTE term discriminates. On 1000 iid-noise CpGs x 80 samples
+#' (no strata whatsoever) this returns silhouette 0.005 -> pass FALSE, while
+#' `n_strata == k` is TAUTOLOGICAL (Hartigan-Wong k-means with centers = 4
+#' errors rather than returning fewer non-empty groups) and the Kruskal test is
+#' CIRCULAR — it compares column means across clusters derived from those same
+#' columns, and fires at p = 0.009 on that pure noise. Both weak conjuncts are
+#' kept because the plan specifies them and neither can mask a low silhouette,
+#' but neither is evidence on its own. See the negative-control test.
+#'
+#' PLATFORM CONFOUND, made explicit and falsifiable: `methyl_mat` is
+#' cbind(HM27, HM450) with NO batch correction, and platform is the strongest
+#' single axis in merged 27k/450k M-values. MEASURED on constructed data with
+#' iid noise, NO biological strata and only a per-platform mean offset, this
+#' check returned pass = TRUE from an offset of 1.5 SD upward (silhouette 0.122
+#' / 0.164 / 0.222 at 1.5 / 2.0 / 3.0 SD, kruskal p = 2.7e-80), i.e. a green
+#' light produced entirely by the assay. `platform_ari` is therefore part of
+#' `pass`: a partition that merely reproduces the assay cannot report green.
+#'
+#' @param methyl_mat CpGs x samples M-value matrix (top-variable).
+#' @param platform per-sample assay factor, in the column order of methyl_mat
+#'   (named, it is checked against colnames). NULL is only legitimate for
+#'   single-platform constructed data: the platform term is then reported as NA
+#'   and dropped from `pass`, and the Task 3.7 anchor REQUIRES a finite
+#'   platform_ari, so the real run cannot silently lose this guard.
+#' @param k published number of strata; an ANCHOR, never tuned to the data.
+#' @param max_platform_ari refusal ceiling on cluster-vs-platform agreement.
+#' @param seed fixed so the k-means partition is reproducible.
+#' @return list(label, n_strata, n_cpg_used, silhouette, kw_p_value,
+#'   platform_ari, platform_p, cluster, pass).
+fn_check_methyl_strata <- function(methyl_mat, platform = NULL,
+                                   k = METHYL_N_STRATA,
+                                   max_platform_ari = SANITY_MAX_PLATFORM_ARI,
+                                   seed = SANITY_SEED) {
+  stopifnot(is.matrix(methyl_mat), ncol(methyl_mat) > k)
+  if (!is.null(platform)) {
+    if (length(platform) != ncol(methyl_mat)) {
+      stop(sprintf("platform has %d entries but methyl_mat has %d samples",
+                   length(platform), ncol(methyl_mat)))
+    }
+    if (!is.null(names(platform)) &&
+          !identical(names(platform), colnames(methyl_mat))) {
+      stop("platform names do not match colnames(methyl_mat): the assay ",
+           "labels would be misaligned with the samples they describe")
+    }
+    if (length(unique(platform)) < 2L) {
+      stop("platform has a single level; pass NULL for single-platform data")
+    }
+  }
+  complete <- fn_complete_cpgs(methyl_mat)
+  restore <- fn_capture_rng()
+  on.exit(restore(), add = TRUE)
+  set.seed(seed)
+  feat <- t(complete)                        # samples x CpGs
+  km <- stats::kmeans(feat, centers = k, nstart = 25L, iter.max = 100L)
+  d <- stats::dist(feat)
+  sil <- cluster::silhouette(km$cluster, d)
+  mean_sil <- mean(sil[, "sil_width"])
+  # Global methylation differs across strata (CIMP-like stratum) -> Kruskal.
+  # Taken over the SAME complete CpGs the clusters came from, so the "global"
+  # mean is not itself a function of which probes failed in which sample.
+  sample_mean_m <- colMeans(complete, na.rm = TRUE)
+  kw <- stats::kruskal.test(sample_mean_m, factor(km$cluster))
+  n_strata <- length(unique(km$cluster))
+  # Is the partition just the assay? See the roxygen note and the calibration in
+  # R/constants.R. Reported as NA when no platform vector was supplied, which
+  # the Task 3.7 anchor refuses.
+  platform_ari <- NA_real_
+  platform_p <- NA_real_
+  if (!is.null(platform)) {
+    platform_ari <- mclust::adjustedRandIndex(km$cluster, platform)
+    platform_p <- suppressWarnings(
+      stats::chisq.test(table(km$cluster, platform))$p.value
     )
-  })
-  per_gene <- do.call(rbind, rows)
-  rownames(per_gene) <- NULL
+  }
   list(
-    label    = "ccRCC driver mutation frequencies within published ranges",
-    per_gene = per_gene,
-    pass     = all(per_gene$pass)
+    label        = "TCGA KIRC methylation resolves into m1-m4 strata",
+    n_strata     = n_strata,
+    n_cpg_used   = nrow(complete),
+    silhouette   = mean_sil,
+    kw_p_value   = kw$p.value,
+    platform_ari = platform_ari,
+    platform_p   = platform_p,
+    cluster      = km$cluster,
+    pass         = n_strata == k &&
+      mean_sil > SANITY_MIN_SILHOUETTE &&
+      kw$p.value < SANITY_MAX_P &&
+      (is.na(platform_ari) || platform_ari < max_platform_ari)
   )
 }
 ```
@@ -3274,7 +3460,7 @@ git commit -m "feat: add fn_check_mutation_freq positive control"
 
 **Interfaces:**
 - Consumes: `clinical` — a `data.frame` with columns `sample_id` (chr), `os_time` (numeric days), `os_event` (0/1), produced by the Module 1 `clinical` target derived in Task 3.6; `mut_annot` with a logical `BAP1` column (Module 2); `survival` package.
-- Produces: `fn_check_bap1_survival(clinical, mut_annot)` → `list(label, hr, ci_low, ci_high, p_value, n, pass)` where `pass = hr > 1`.
+- Produces: `fn_check_bap1_survival(clinical, mut_annot)` → `list(label, hr, ci_low, ci_high, p_value, n, n_events, pass)` where `pass = hr > 1`. It REFUSES degenerate designs rather than reporting them: `survival::coxph` does not error on zero events or on a constant BAP1 column — MEASURED, it returns `hr = NA, p = NA, pass = NA` silently, and on a single event `hr = 3.7e+09, ci = [0, Inf], p = 0.999, pass = TRUE`. Hence the `MIN_OS_EVENTS` floor, the both-levels check and the finite-HR check.
 
 - [ ] **Step 1: Write the failing test.** Append to `tests/testthat/test-sanity.R`:
 ```r
@@ -3316,33 +3502,107 @@ Expected:
 ```
 
 - [ ] **Step 3: Write minimal implementation.** Append to `R/functions_sanity.R`:
+> **AS COMMITTED.** The block below is the body actually in the repo, not the first draft: Phase 3 is the credibility anchor, so every deviation found while implementing it is recorded here rather than only in a code comment. Replaying this task reproduces the hardened version.
 ```r
-#' Check that BAP1-mutant ccRCC tumours have worse overall survival.
-#' @return list(label, hr, ci_low, ci_high, p_value, n, pass).
-fn_check_bap1_survival <- function(clinical, mut_annot) {
-  stopifnot(all(c("sample_id", "os_time", "os_event") %in% names(clinical)))
-  stopifnot("BAP1" %in% names(mut_annot))
-  merged <- merge(
-    clinical[, c("sample_id", "os_time", "os_event")],
-    mut_annot[, c("sample_id", "BAP1")],
-    by = "sample_id"
-  )
-  merged <- merged[stats::complete.cases(merged) & merged$os_time > 0, ]
-  merged$bap1_mut <- as.integer(as.logical(merged$BAP1))
-  fit <- survival::coxph(
-    survival::Surv(os_time, os_event) ~ bap1_mut,
-    data = merged
-  )
-  s <- summary(fit)
-  hr <- unname(s$conf.int["bap1_mut", "exp(coef)"])
+#' Check ccA/ccB expression-signature separation (Brannon 2010 proxy).
+#' ccB = proliferative axis-high, ccA = angiogenic axis-low.
+#'
+#' DELIBERATE STRENGTHENING of the plan's body, which is otherwise kept
+#' verbatim. As specified, `pass` required only (a) mean silhouette >
+#' SANITY_MIN_SILHOUETTE and (b) a Wilcoxon p on the ccB-ccA axis across the
+#' k-means groups. BOTH are circular: the groups are k-means on the very pair
+#' of scores that then get clustered and compared, so 2-D k-means always splits
+#' the cloud (silhouette 0.37-0.44 even on pure noise) and the Wilcoxon can
+#' fire on an arbitrary split direction. MEASURED on five structureless
+#' matrices carrying every published marker and no ccA/ccB structure at all,
+#' the specified pair returned pass = TRUE on three of five. A positive control
+#' that greenlights noise is worse than none.
+#'
+#' The added conjunct is the published claim itself and is NON-CIRCULAR: the
+#' proliferation and angiogenesis programmes must be OPPOSED across tumours
+#' (Spearman rho < 0, p < SANITY_MAX_P), computed from the marker scores alone
+#' with no reference to the clustering. It uses no new threshold — the
+#' direction is the null (0) and the alpha is the existing SANITY_MAX_P — and
+#' it makes the check STRICTER, never more permissive, so it cannot turn a real
+#' failure green. Measured behaviour: rejects all five structureless matrices,
+#' rejects markers that all move together (rho ~ +0.99), accepts genuine
+#' opposition (rho = -0.71, p = 9.9e-07).
+#'
+#' The panels are simplified proxies, NOT ClearCode34; that limitation is
+#' stated in R/constants.R and belongs in the dashboard too.
+#'
+#' @param rna_mat genes x samples log2-normalised expression, symbol rownames.
+#' @param ccb_markers,cca_markers published marker panels — ANCHORS, never
+#'   edited to make an observation pass.
+#' @param min_markers refusal floor on surviving markers PER PANEL. Not an
+#'   anchor: it touches no threshold and no direction, so it cannot turn a
+#'   failing check green — it only stops a gutted panel scoring a published axis
+#'   from a couple of genes.
+#' @param seed fixed so the k-means partition is reproducible.
+#' @return list(label, n_ccb_used, n_cca_used, markers_used, silhouette,
+#'   separation_p_value, anticorr_rho, anticorr_p_value, group, axis_score,
+#'   pass).
+fn_check_ccab_signature <- function(rna_mat,
+                                    ccb_markers = CCB_PROLIFERATION_MARKERS,
+                                    cca_markers = CCA_ANGIOGENESIS_MARKERS,
+                                    min_markers = SANITY_MIN_MARKERS_PER_PANEL,
+                                    seed = SANITY_SEED) {
+  stopifnot(is.matrix(rna_mat), !is.null(rownames(rna_mat)))
+  ccb <- intersect(ccb_markers, rownames(rna_mat))
+  cca <- intersect(cca_markers, rownames(rna_mat))
+  if (length(ccb) < min_markers || length(cca) < min_markers) {
+    stop(sprintf(
+      paste0("insufficient ccA/ccB marker genes present in rna_mat: ",
+             "%d/%d ccB and %d/%d ccA survived (floor %d per panel)"),
+      length(ccb), length(ccb_markers), length(cca), length(cca_markers),
+      min_markers
+    ))
+  }
+  ccb_score <- colMeans(rna_mat[ccb, , drop = FALSE])
+  cca_score <- colMeans(rna_mat[cca, , drop = FALSE])
+  # A high axis value marks a ccB-like (proliferative) tumour.
+  axis <- ccb_score - cca_score
+  restore <- fn_capture_rng()
+  on.exit(restore(), add = TRUE)
+  set.seed(seed)
+  # Cluster AND measure in the SAME space. This previously clustered on the
+  # standardised scores but took the silhouette from a raw-space distance, so
+  # the reported number was not the separation quality of the partition being
+  # reported. MEASURED on a matrix whose two panels differ ~37x in spread:
+  # reported silhouette -0.020 versus 0.538 in the space k-means actually used.
+  # fn_check_methyl_strata already does this correctly.
+  feat <- cbind(scale(ccb_score), scale(cca_score))
+  km <- stats::kmeans(feat, centers = 2L, nstart = 25L)
+  sil <- cluster::silhouette(km$cluster, stats::dist(feat))
+  wt <- stats::wilcox.test(axis ~ factor(km$cluster))
+  mean_sil <- mean(sil[, "sil_width"])
+  # The non-circular term: proliferation vs angiogenesis must be OPPOSED.
+  # exact = FALSE pins the normal approximation so tied expression values
+  # cannot change the test used (and cannot raise a warning) run to run.
+  rho_test <- stats::cor.test(ccb_score, cca_score, method = "spearman",
+                              exact = FALSE)
+  rho <- unname(rho_test$estimate)
   list(
-    label   = "BAP1-mutant tumours show worse overall survival (HR > 1)",
-    hr      = hr,
-    ci_low  = unname(s$conf.int["bap1_mut", "lower .95"]),
-    ci_high = unname(s$conf.int["bap1_mut", "upper .95"]),
-    p_value = unname(s$coefficients["bap1_mut", "Pr(>|z|)"]),
-    n       = nrow(merged),
-    pass    = hr > 1
+    label              = "ccA/ccB expression signatures separate into two groups",
+    # The panel ACTUALLY used. Without this the returned object was identical
+    # whether the full 6-vs-6 published panel scored the axis or a silently
+    # truncated 2-vs-2 remnant did, so no anchor could detect attrition.
+    n_ccb_used         = length(ccb),
+    n_cca_used         = length(cca),
+    markers_used       = list(ccb = ccb, cca = cca),
+    silhouette         = mean_sil,
+    separation_p_value = wt$p.value,
+    anticorr_rho       = rho,
+    anticorr_p_value   = rho_test$p.value,
+    group              = km$cluster,
+    axis_score         = axis,
+    # SANITY_MIN_SILHOUETTE_2D, not SANITY_MIN_SILHOUETTE: this is a 2-D 2-means
+    # whose null distribution is nothing like the methylation check's. See the
+    # calibration recorded in R/constants.R (null ceiling 0.466 over 600 runs).
+    pass               = mean_sil > SANITY_MIN_SILHOUETTE_2D &&
+      wt$p.value < SANITY_MAX_P &&
+      rho < 0 &&
+      rho_test$p.value < SANITY_MAX_P
   )
 }
 ```
@@ -3370,8 +3630,9 @@ git commit -m "feat: add fn_check_bap1_survival positive control"
 - Modify: `R/functions_sanity.R`, `tests/testthat/test-sanity.R`, `DESCRIPTION`
 
 **Interfaces:**
-- Consumes: `METHYL_N_STRATA`, `SANITY_MIN_SILHOUETTE`, `SANITY_MAX_P`, `SANITY_SEED` (Task 3.1); `methyl_mat` — CpGs × samples M-value matrix, HM27+HM450 merged, top-variable (Module 1); package `cluster` (R-recommended).
-- Produces: `fn_check_methyl_strata(methyl_mat, k = METHYL_N_STRATA, seed = SANITY_SEED)` → `list(label, n_strata, silhouette, kw_p_value, cluster, pass)`.
+- Consumes: `METHYL_N_STRATA`, `SANITY_MIN_SILHOUETTE`, `SANITY_MAX_P`, `SANITY_MIN_COMPLETE_FRAC`, `SANITY_MAX_PLATFORM_ARI`, `SANITY_SEED` (Task 3.1); `methyl_mat` — CpGs × samples M-value matrix, HM27+HM450 merged, top-variable (Module 1); `methyl_platform` (Task 3.6); packages `cluster` (R-recommended) and `mclust` (already a Module 2 dependency).
+- Produces: `fn_complete_cpgs(methyl_mat, min_frac = SANITY_MIN_COMPLETE_FRAC)`, and `fn_check_methyl_strata(methyl_mat, platform = NULL, k = METHYL_N_STRATA, max_platform_ari = SANITY_MAX_PLATFORM_ARI, seed = SANITY_SEED)` → `list(label, n_strata, n_cpg_used, silhouette, kw_p_value, platform_ari, platform_p, cluster, pass)`.
+- **Two departures from the first draft, both required for the check to run at all or to be falsifiable.** (1) `fn_complete_cpgs`: `stats::kmeans` errors outright on NA/NaN/Inf and the real `methyl_mat` is only 91.4% complete (432 of 5000 CpGs carry a non-finite value), so without it the anchor cannot run on the data it exists to check; dropping is per-CpG, never per-sample, and imputation is deliberately NOT used because invented values in a positive control are invented evidence. (2) the `platform` term — see the `methyl_platform` note in Task 3.6.
 
 - [ ] **Step 1: Declare the `cluster` dependency.** Add to the `Imports:` field of `DESCRIPTION`:
 ```
@@ -3472,7 +3733,9 @@ git commit -m "feat: add fn_check_methyl_strata positive control (m1-m4)"
 
 **Interfaces:**
 - Consumes: `CCB_PROLIFERATION_MARKERS`, `CCA_ANGIOGENESIS_MARKERS`, `SANITY_MIN_SILHOUETTE`, `SANITY_MAX_P`, `SANITY_SEED` (Task 3.1); `rna_mat` — genes × samples log2-normalised expression, gene-symbol rownames (Module 1); package `cluster`.
-- Produces: `fn_check_ccab_signature(rna_mat, ccb_markers = CCB_PROLIFERATION_MARKERS, cca_markers = CCA_ANGIOGENESIS_MARKERS, seed = SANITY_SEED)` → `list(label, silhouette, separation_p_value, group, axis_score, pass)`.
+- Produces: `fn_check_ccab_signature(rna_mat, ccb_markers = CCB_PROLIFERATION_MARKERS, cca_markers = CCA_ANGIOGENESIS_MARKERS, min_markers = SANITY_MIN_MARKERS_PER_PANEL, seed = SANITY_SEED)` → `list(label, n_ccb_used, n_cca_used, markers_used, silhouette, separation_p_value, anticorr_rho, anticorr_p_value, group, axis_score, pass)`.
+- **Three departures from the first draft, all STRICTENING.** (1) `pass` also requires the published ccA/ccB OPPOSITION (Spearman rho < 0 at `SANITY_MAX_P`), computed from the marker scores alone with no reference to the clustering. The draft's silhouette + Wilcoxon pair are BOTH circular — the groups are k-means on the very pair of scores that then get clustered and compared — and MEASURED they returned `pass = TRUE` on 3 of 5 structureless matrices. (2) the silhouette is computed in the SAME space the clustering used; measured on a matrix whose panels differ ~37x in spread, the draft reported -0.020 where the clustering's own space gives 0.538. (3) the threshold is `SANITY_MIN_SILHOUETTE_2D`, separately calibrated, because pure 2-D noise clears the 0.10 methylation floor every time.
+- The DAG feeds this `rna_full`, NOT `rna_mat` — see Task 3.6.
 
 - [ ] **Step 1: Write the failing test.** Append to `tests/testthat/test-sanity.R`:
 ```r
@@ -3575,30 +3838,65 @@ git commit -m "feat: add fn_check_ccab_signature positive control"
 - Test: `tar_make(sanity_results)` + an inline `tar_read` assertion (the pipeline-wiring "test").
 
 **Interfaces:**
-- Consumes: targets `mae_qc`, `mut_annot`, `methyl_mat`, `rna_mat` (Modules 1–2); `fn_check_mutation_freq` / `fn_check_bap1_survival` / `fn_check_methyl_strata` / `fn_check_ccab_signature` (Tasks 3.2–3.5).
-- Produces: target `clinical` — a `data.frame(sample_id, os_time, os_event)` derived from `MultiAssayExperiment::colData(mae_qc)`; and target `sanity_results` — a named list `list(mutation_freq, bap1_survival, methyl_strata, ccab_signature)`, each element the structured pass/fail list from its `fn_check_*`.
+- Consumes: targets `mae_qc`, `mut_annot`, `methyl_mat`, `rna_full`, `methyl_platform` (Modules 1–2); `fn_check_mutation_freq` / `fn_check_bap1_survival` / `fn_check_methyl_strata` / `fn_check_ccab_signature` (Tasks 3.2–3.5).
+- Produces: targets `clinical` — a `data.frame(sample_id, os_time, os_event)` derived from `MultiAssayExperiment::colData(mae_qc)`; `rna_full` and `methyl_platform` (both added here, both load-bearing — see Step 2); and target `sanity_results` — a named list `list(mutation_freq, bap1_survival, methyl_strata, ccab_signature)`, each element the structured pass/fail list from its `fn_check_*`.
+- **Two departures in the `clinical` body, both required for the BAP1 control to be capable of failing.** (1) the death set is `VITAL_STATUS_DEAD_VALUES` (dead / deceased / "1"), not a literal `c("dead", "deceased")`: on a snapshot storing `vital_status` as 0/1 the narrower set matches NOTHING, giving zero events and a survival anchor that cannot fail. (2) the required `colData` columns are checked up front, because `cd$days_to_death` on a differently-spelled column returns NULL and the `ifelse()` then silently turns a whole arm into NA. IDs are harmonised with `fn_harmonise_ids` because every other keyed object in the DAG is.
 
-> **`clinical` target rationale:** Task 3.3's `fn_check_bap1_survival` requires a `clinical` frame with `sample_id`/`os_time`/`os_event`, but no upstream module produced one (Module 1's Task 1.14 emits only `mae_raw`/`mae_qc`/`rna_mat`/`methyl_mat`/`cnv_mat`/`mut_annot`/`common_ids`/`cohort_n`/`methyl_anno`). This task derives `clinical` once from `colData(mae_qc)` using the same `vital_status`/`days_to_death`/`days_to_last_followup` logic as Module 4's Task 4.7, standardising the survival columns on `os_time`/`os_event`. Module 4's survival model MUST reuse this `clinical` target (in place of building its own `survival_df` with `time`/`status`) so column naming stays consistent across the whole DAG.
+> **`clinical` target rationale:** Task 3.3's `fn_check_bap1_survival` requires a `clinical` frame with `sample_id`/`os_time`/`os_event`, but no upstream module produced one (Module 1's Task 1.14 emits only `mae_raw`/`mae_qc`/`rna_mat`/`methyl_mat`/`cnv_mat`/`mut_annot`/`common_ids`/`cohort_n`/`methyl_anno`). This task derives `clinical` once from `colData(mae_qc)` using the same `vital_status`/`days_to_death`/`days_to_last_followup` logic as Module 4's Task 4.7, standardising the survival columns on `os_time`/`os_event`. **`clinical` is the CANONICAL OS derivation for the whole DAG.** Module 4's Task 4.7 MUST build `survival_df` on top of it — merging its own covariates onto `clinical` — and must NOT re-decode `vital_status`/`days_to_death`/`days_to_last_followup` itself, so there is exactly one decode and exactly one sample key (harmonised patient barcodes via `fn_harmonise_ids`). Task 4.7 renames `os_time`/`os_event` to `time`/`status` at that single boundary, because `fn_fit_cox`/`fn_fit_penalised_cox`/`fn_fit_rsf` (Tasks 4.4–4.6) and `km_subtype_df` (Task 5.2) contract on `time`/`status`; the rename happens there and nowhere else.
 
 > Prerequisite: the upstream Module 1–2 targets must already be built (local `HEAVY_PULL` run) or restored from the release-asset `_targets` store. `clinical` and `sanity_results` are computed once on the frozen real data and cached.
 
 - [ ] **Step 1: Add the `clinical` target.** In `_targets.R`, inside the `list(...)` of targets (after the Module 1 targets, before Module 3), add:
+> **AS COMMITTED.** The block below is what is actually in the repo, not the first draft. Replaying this task reproduces the hardened version.
 ```r
   # --- Module 3 prerequisite: shared clinical survival frame ----------------
-  # Derived once from colData(mae_qc); reused by Module 4's survival model so
-  # the survival columns (sample_id / os_time / os_event) stay consistent
-  # across the DAG. os_event = 1 for deceased patients; os_time uses
-  # days_to_death for events and days_to_last_followup for censored cases.
+  # Derived once from colData(mae_qc); Module 4's survival model MUST reuse
+  # this target instead of building its own survival_df, so the survival
+  # columns (sample_id / os_time / os_event) stay consistent across the DAG.
+  # os_event = 1 for deceased patients; os_time uses days_to_death for events
+  # and days_to_last_followup for censored cases.
+  #
+  # TWO DEPARTURES from the plan's literal block, both required for the BAP1
+  # positive control to be capable of failing at all:
+  #
+  #  1. The death set is VITAL_STATUS_DEAD_VALUES (= dead / deceased / "1"),
+  #     not a literal c("dead", "deceased"). The narrower set is contradicted
+  #     by this repo's own MEASURED census (run 30708943504) and by the design
+  #     spec, and on a snapshot storing vital_status as 0/1 it matches nothing
+  #     -> zero events -> a survival anchor that cannot fail.
+  #  2. The required colData columns are checked up front. `cd$days_to_death`
+  #     on a snapshot that spells a column differently returns NULL, and the
+  #     ifelse() below then silently turns a whole arm into NA — censored cases
+  #     would vanish and the anchor would be fitted on deaths only. Fail loudly.
+  #
+  # IDs are harmonised to patient barcodes because mut_annot, common_ids and
+  # every aligned matrix in this DAG are keyed that way; an unharmonised
+  # rowname would join to nothing and merge() would silently return 0 rows.
+  #
+  # SCOPE: this frame covers every case in colData (536), NOT just the 524-case
+  # main cohort. fn_check_bap1_survival inner-joins it to mut_annot (417), so
+  # the BAP1 anchor is evaluated on the mutation subset by construction. Module
+  # 4 must restrict to `common_ids` itself before fitting the survival model.
   tar_target(
     clinical,
     {
       cd <- as.data.frame(MultiAssayExperiment::colData(mae_qc))
+      required_cols <- c("vital_status", "days_to_death", "days_to_last_followup")
+      absent <- setdiff(required_cols, colnames(cd))
+      if (length(absent) > 0L) {
+        stop("colData(mae_qc) lacks required survival columns: ",
+             paste(absent, collapse = ", "))
+      }
       days_to_death    <- suppressWarnings(as.numeric(cd$days_to_death))
       days_to_followup <- suppressWarnings(as.numeric(cd$days_to_last_followup))
-      os_event <- as.integer(tolower(cd$vital_status) %in% c("dead", "deceased"))
+      os_event <- as.integer(
+        tolower(as.character(cd$vital_status)) %in% VITAL_STATUS_DEAD_VALUES
+      )
       os_time  <- ifelse(os_event == 1L, days_to_death, days_to_followup)
+      sample_id <- fn_harmonise_ids(rownames(cd))
+      stopifnot(!anyDuplicated(sample_id))
       data.frame(
-        sample_id = rownames(cd),
+        sample_id = sample_id,
         os_time   = os_time,
         os_event  = os_event,
         stringsAsFactors = FALSE
@@ -3608,17 +3906,69 @@ git commit -m "feat: add fn_check_ccab_signature positive control"
 ```
 
 - [ ] **Step 2: Add the `sanity_results` target.** In `_targets.R`, inside the same `list(...)` (after the Module 2 targets and the `clinical` target, before Module 4), add:
+> **AS COMMITTED.** The block below is what is actually in the repo, not the first draft. Replaying this task reproduces the hardened version.
 ```r
   # --- Module 3: sanity-check positive controls (credibility anchor) --------
+  # Four literature-anchored ccRCC checks, each returning a structured pass/fail
+  # object (spec section 7). Computed ONCE on the frozen real data and cached;
+  # tests/testthat/test-sanity.R reads this target and asserts it against the
+  # published literature. Light on packages: every fn_check_* works on plain
+  # matrices/data.frames, so no per-target `packages` entry is needed.
   tar_target(
     sanity_results,
     list(
       mutation_freq  = fn_check_mutation_freq(mut_annot),
       bap1_survival  = fn_check_bap1_survival(clinical, mut_annot),
-      methyl_strata  = fn_check_methyl_strata(methyl_mat),
-      ccab_signature = fn_check_ccab_signature(rna_mat)
+      # methyl_platform is REQUIRED here: without it the m1-m4 verdict cannot
+      # distinguish the published biology from the uncorrected HM27/HM450 batch.
+      methyl_strata  = fn_check_methyl_strata(methyl_mat,
+                                              platform = methyl_platform),
+      # rna_full, NOT rna_mat: the published ccA/ccB panels must not pass
+      # through the top-5000-variable filter (see the rna_full target above).
+      ccab_signature = fn_check_ccab_signature(rna_full)
     )
-  ),
+  )
+```
+
+  Two Module 1 targets exist **because of** this wiring, and must be added alongside it. Neither is cosmetic: each removes a way for a Module 3 anchor to report green without evidence.
+
+  `rna_full` — the ccA/ccB panels are a PUBLISHED anchor and must not pass through a data-driven feature filter. Feeding the check `rna_mat` (top-5000 of ~20500) lets low-variance markers (EPAS1, KDR, FLT1) be dropped silently, degrading a 6-vs-6 comparison to a 2-vs-2 one:
+
+```r
+  # rna_full is the log2-normalised, cohort-aligned expression matrix BEFORE the
+  # top-variable filter (~20500 genes x 524). Split out of rna_mat because a
+  # PUBLISHED marker panel must not be subject to a data-driven feature filter:
+  # Module 3's ccA/ccB check scores the Brannon 2010 proxy panels, and any
+  # low-variance member (EPAS1, KDR and FLT1 are the likely casualties) would
+  # otherwise be silently dropped by fn_top_variable, degrading a 6-vs-6
+  # comparison to a 2-vs-2 one with nothing in the result to say so.
+  # rna_mat is unchanged — the same expression, now derived from rna_full.
+  tar_target(rna_full,
+             fn_align_samples(fn_log2_normalise_rna(rna_raw), common_ids)),
+  tar_target(rna_mat, fn_top_variable(rna_full, N_TOP_GENES)),
+```
+
+  `methyl_platform` — `methyl_merged` is `cbind(HM27, HM450)` with NO batch correction, and platform is the strongest single axis in merged 27k/450k M-values. MEASURED on constructed data with iid noise, NO biological strata and only a per-platform mean offset, `fn_check_methyl_strata` returned `pass = TRUE` from 1.5 SD upward, i.e. an m1–m4 green light produced entirely by the assay:
+
+```r
+  # Per-sample assay platform, in the column order of methyl_mat. Module 3's
+  # m1-m4 check needs it because methyl_merged is cbind(HM27, HM450) with NO
+  # batch correction, so the strongest axis in the merged matrix is the assay
+  # rather than the biology, and a k-means partition that merely reproduces the
+  # platform would otherwise report a green m1-m4 verdict.
+  #
+  # The rule below MIRRORS fn_align_samples exactly: it keeps the FIRST column
+  # per patient (`!duplicated`) and methyl_merged puts HM27 first, so a case
+  # assayed on both platforms is carried by its HM27 column. colnames(methyl_mat)
+  # is `common_ids` by construction, hence the names.
+  tar_target(methyl_platform, {
+    hm27_ids <- fn_harmonise_ids(colnames(meth27_raw))
+    p <- factor(ifelse(common_ids %in% hm27_ids, "HM27", "HM450"),
+                levels = METHYL_PLATFORMS)
+    names(p) <- common_ids
+    stopifnot(length(unique(p)) == length(METHYL_PLATFORMS))
+    p
+  }),
 ```
 
 - [ ] **Step 3: Verify the DAG resolves (manifest lists both targets).**
@@ -3680,51 +4030,68 @@ git commit -m "feat: derive clinical target and wire sanity_results into the tar
 - Consumes: frozen target `sanity_results` (Task 3.6) via `targets::tar_read`; `PUBLISHED_MUT_FREQ_RANGES` (Task 3.1).
 - Produces: no new functions — the four literature positive controls surfaced as real `testthat` assertions on the real pipeline output. This is the credibility anchor referenced in spec §7.
 
-- [ ] **Step 1: Write the failing anchor assertions.** Append to `tests/testthat/test-sanity.R`:
+- [ ] **Step 1: Write the failing anchor assertions.** Append to `tests/testthat/test-sanity.R`.
+
+> **AS COMMITTED — the store resolution is NOT the plan's original one-liner.** `tryCatch(targets::tar_read(sanity_results), error = function(e) NULL)` has three defects, each of which makes the anchor skip GREEN exactly where it is supposed to run: (1) testthat's working directory is `tests/testthat/`, so a bare `tar_read()` never finds the store even in the container where it has been restored; (2) a blanket `tryCatch` converts an ERRORED target into a skip; (3) a store that has pipeline metadata but no `sanity_results` row — which is what ANY upstream failure leaves behind, since `sanity_results` is the LAST target in the DAG — also skipped. VERIFIED against three real stores: no metadata → skip (correct); errored target → stop (correct); populated store missing the row → SKIP 9, FAIL 0 (wrong). Skipping is reserved for the one honest case: no pipeline metadata at all.
+
 ```r
 # --- Credibility anchor: real pipeline results vs published ccRCC literature -
 # Reads the frozen sanity_results target. Executes wherever the _targets store
 # is present (locally after tar_make; in CI after the release-asset restore).
+#
+# STORE RESOLUTION — a deliberate departure from the plan's one-liner
+# `tryCatch(targets::tar_read(sanity_results), error = function(e) NULL)`:
+#
+#  1. testthat runs with the working directory set to tests/testthat/, so a
+#     bare tar_read() looks for ./_targets, never finds it, and SKIPS — INCLUDING
+#     in the container, where the release-asset store has been restored and the
+#     anchor is supposed to run for real. An anchor that stays green by silently
+#     skipping is exactly the false confidence this suite exists to prevent, so
+#     the store is resolved explicitly against the repo root.
+#  2. A blanket tryCatch also turns an ERRORED target into a skip. If the store
+#     records sanity_results as failed, that is a finding and must surface as a
+#     FAILURE, never as a skip.
+#  3. A store that HAS pipeline metadata but no sanity_results ROW is likewise a
+#     failure, not a skip. `sanity_results` is the LAST target in _targets.R, so
+#     any upstream failure (a MOFA OOM, an ExperimentHub timeout, a
+#     `continue-on-error: true` tar_make step) leaves a fully-populated store
+#     with the row missing — and so does restoring a release-asset store created
+#     before Module 3 existed. Returning NULL there made every anchor skip GREEN
+#     against real data, which is the exact false confidence this suite exists
+#     to prevent. VERIFIED: a store recording unrelated targets and no
+#     sanity_results row produced SKIP 9 / FAIL 0 before this guard.
+#
+# Skipping is therefore reserved for the one honest case: no pipeline metadata
+# at all (a fresh clone, or a local machine with no real-data store — which is
+# the expected local outcome, since Modules 1-2 only run in the container).
 
 read_sanity_results <- function() {
-  tryCatch(targets::tar_read(sanity_results), error = function(e) NULL)
+  store <- testthat::test_path("..", "..", "_targets")
+  if (!file.exists(file.path(store, "meta", "meta"))) {
+    return(NULL)
+  }
+  meta <- targets::tar_meta(store = store)
+  if (!"sanity_results" %in% meta$name) {
+    stop("the _targets store at ", store, " has pipeline metadata but records ",
+         "no `sanity_results` target: the restore predates Module 3, or an ",
+         "upstream target failed before it. The credibility anchors must not ",
+         "skip against a populated store.")
+  }
+  err <- meta$error[meta$name == "sanity_results"]
+  if (!is.na(err[[1]])) {
+    stop("sanity_results is recorded in the _targets store but ERRORED: ",
+         err[[1]])
+  }
+  targets::tar_read(sanity_results, store = store)
 }
 
-test_that("ANCHOR: ccRCC driver mutation frequencies match published ranges", {
-  sr <- read_sanity_results()
-  skip_if(is.null(sr), "sanity_results not in _targets store (run tar_make)")
-
-  mf <- sr$mutation_freq
-  expect_true(mf$pass)
-  vhl <- mf$per_gene$observed[mf$per_gene$gene == "VHL"]
-  expect_gte(vhl, PUBLISHED_MUT_FREQ_RANGES$VHL["low"])
-  expect_lte(vhl, PUBLISHED_MUT_FREQ_RANGES$VHL["high"])
-})
-
-test_that("ANCHOR: BAP1-mutant tumours have worse OS (HR > 1)", {
-  sr <- read_sanity_results()
-  skip_if(is.null(sr), "sanity_results not in _targets store (run tar_make)")
-
-  bs <- sr$bap1_survival
-  expect_gt(bs$hr, 1)
-  expect_lt(bs$p_value, 0.05)
-})
-
-test_that("ANCHOR: methylation recovers four strata (m1-m4)", {
-  sr <- read_sanity_results()
-  skip_if(is.null(sr), "sanity_results not in _targets store (run tar_make)")
-
-  ms <- sr$methyl_strata
-  expect_identical(ms$n_strata, 4L)
-  expect_true(ms$pass)
-})
-
-test_that("ANCHOR: ccA/ccB expression signatures separate", {
-  sr <- read_sanity_results()
-  skip_if(is.null(sr), "sanity_results not in _targets store (run tar_make)")
-
-  expect_true(sr$ccab_signature$pass)
-})
+# The nine ANCHOR test_that() blocks follow — see tests/testthat/test-sanity.R for the
+# committed assertions. Each floor is bound to a MEASURED quantity rather than to a
+# convenient constant: bap1_survival$n to [0.95 * 417, 417] (a Module 2 guard of 50L let
+# an HR fitted on n = 60 pass every anchor), methyl_strata$n_cpg_used to
+# [0.85 * N_TOP_CPGS, N_TOP_CPGS] (re-asserting fn_complete_cpgs' own internal floor was
+# tautological), mutation_freq$n to [0.95 * 417, 417], and the ccA/ccB silhouette to
+# SANITY_MIN_SILHOUETTE_2D rather than the methylation floor.
 ```
 
 - [ ] **Step 2: Run without the store to confirm the anchors SKIP (not silently pass).** Temporarily point at an empty store:
@@ -3762,7 +4129,20 @@ git commit -m "test: assert frozen sanity_results against published ccRCC litera
 
 ---
 
-I have enough context. The findings are self-contained. Producing the corrected section.
+**Phase 3 exit criteria:** all four `fn_check_*` live in `R/functions_sanity.R` and are pure — they return new lists, mutate no input, and restore the caller's RNG stream (`fn_capture_rng`). `sanity_results` is materialised in the `_targets` store with all four `pass` flags `TRUE`, computed on the frozen real data via `clinical`, `mut_annot`, `methyl_mat` + `methyl_platform`, and `rna_full`. Each check has a NEGATIVE CONTROL proving it can fail, and each control is a committed test rather than a claim:
+
+| check | negative control | committed evidence |
+|---|---|---|
+| `fn_check_mutation_freq` | a driver outside its published range (both directions), a non-coercible column, an annotation carrying none of the ranged genes | exactly one gene flagged; `stop()` on the other two |
+| `fn_check_bap1_survival` | protective BAP1 (HR < 1); zero events; BAP1 constant; too few events | `pass = FALSE` for the first, `stop()` for the rest — `coxph` returns `pass = NA` silently on all three, and `pass = TRUE` off a single event |
+| `fn_check_methyl_strata` | a structureless noise matrix; a matrix carrying ONLY an HM27/HM450 offset and no biology | silhouette collapses to 0.005 in the first; `platform_ari` 0.504 vetoes the second, which otherwise reported `pass = TRUE` from 1.5 SD upward |
+| `fn_check_ccab_signature` | five structureless matrices; markers that all move together; a gutted panel | `pass = FALSE`; `stop()` on the gutted panel; 0/200 structureless matrices pass |
+
+The nine `ANCHOR:` tests must **EXECUTE, not skip**, in the container run. They skip locally by design (no real-data `_targets` store exists on the dev machine) but the LEVEL 3 workflow step fails the job if any of them skips after `tar_make`, and `read_sanity_results()` raises rather than skipping whenever a populated store lacks the `sanity_results` row. Every anchor floor is bound to a MEASURED quantity, never to a convenient constant.
+
+**Phase 3 exit criteria — STATUS: NOT YET VERIFIED ON REAL DATA — unit level only.** `sanity_results` has never been built: there is no `_targets` store on the dev machine and, until the LEVEL 3 step added to `.github/workflows/verify-module2.yml`, no workflow built it either. Every number quoted in this phase comes from constructed data or from the Module 1/2 census (runs 30642823359, 30708943504, 30718392588) — **no scientific claim about ccRCC has been made from this pipeline's own output yet**. This line stays until a container run produces a `docs/results/` transcript of the four verdicts, in the manner of `docs/results/module2-run-30718392588.txt`. A red anchor in that run is a FINDING to report, never a threshold to widen.
+
+---
 
 ## Phase 4: Model
 
@@ -4256,7 +4636,7 @@ Assumes Modules 0–2 exist: `R/constants.R` already defines `EPV_CAP <- 10L` an
 - Test: `tar_make()` reaching `survival_metrics` + an assertion on its value (pipeline-wiring test).
 
 **Interfaces:**
-- Consumes: `mae_qc` (Module 1), `mofa_factors: matrix (samples × factors)`, `subtypes_mofa` (Module 2); `fn_fit_cox / fn_fit_penalised_cox / fn_fit_rsf` (Task 4.4–4.6); `fn_cindex / fn_calibration` (Task 4.2–4.3).
+- Consumes: `clinical` — the CANONICAL OS frame `data.frame(sample_id, os_time, os_event)` derived in **Task 3.6** (Module 1/3); `mae_qc` (Module 1, for the non-survival covariates only), `mofa_factors: matrix (samples × factors)`, `subtypes_mofa` (Module 2); `fn_fit_cox / fn_fit_penalised_cox / fn_fit_rsf` (Task 4.4–4.6); `fn_cindex / fn_calibration` (Task 4.2–4.3).
 - Produces: targets `survival_df`, `survival_predictors`, `cox_fit`, `penalised_cox_fit`, `rsf_fit`, `survival_metrics: list(cindex = list(cox, penalised, rsf), optimism = list(cox), calibration = data.frame)`.
 
 - [ ] **Step 0: Confirm the actual `colData` coding before wiring (load-bearing check).** `curatedTCGAData` legacy `colData` can code `vital_status` numerically (`1` = dead) rather than as `"Dead"/"Alive"`; if the decode is wrong, `status` collapses to all-zero, every fit degenerates, and the EPV cap silently computes 0 predictors. Inspect the real columns and coding once, so the decode below matches version 2.0.1 `colData`:
@@ -4285,34 +4665,38 @@ Assumes Modules 0–2 exist: `R/constants.R` already defines `EPV_CAP <- 10L` an
   tar_target(survival_df, {
     cd <- as.data.frame(MultiAssayExperiment::colData(mae_qc))
 
-    # Fail fast if the snapshot's colData does not carry the expected columns
-    # (names confirmed in Step 0 against the version 2.0.1 colData).
-    req_cols <- c("vital_status", "days_to_death", "days_to_last_followup",
-                  "years_to_birth", "pathologic_stage")
+    # SURVIVAL COMES FROM `clinical` (Task 3.6), NOT from a second decode here.
+    # This target used to re-derive vital_status / days_to_death /
+    # days_to_last_followup independently and key on RAW `rownames(cd)`, while
+    # `clinical` decodes with VITAL_STATUS_DEAD_VALUES and keys on harmonised
+    # patient barcodes. That put two divergent OS derivations, with incompatible
+    # keys, into the same DAG — exactly the drift Task 3.6 exists to prevent,
+    # and the failure mode where a {dead, deceased} test against a 0/1-coded
+    # vital_status yields zero events and an unfalsifiable survival model.
+    #
+    # Only the NON-survival covariates are read from colData here.
+    req_cols <- c("years_to_birth", "pathologic_stage")
     missing_cols <- setdiff(req_cols, colnames(cd))
     stopifnot(length(missing_cols) == 0)
 
-    # Robust vital-status decode: curatedTCGAData legacy colData may code the
-    # event as numeric 1 or as a "Dead"/"Deceased" string. Normalise both.
-    vs <- tolower(trimws(as.character(cd$vital_status)))
-    is_dead <- vs %in% c("1", "dead", "deceased")
-    status  <- as.integer(is_dead)
-    stopifnot(sum(status) > 0)  # non-degenerate: at least one event
-
-    # Overall-survival time: days_to_death for events, last follow-up otherwise.
-    time <- ifelse(is_dead, cd$days_to_death, cd$days_to_last_followup)
-
-    base <- data.frame(
-      sample_id = rownames(cd),
-      time = as.numeric(time),
-      status = status,
+    covars <- data.frame(
+      sample_id = fn_harmonise_ids(rownames(cd)),
       age_years = as.numeric(cd$years_to_birth),
       stage_num = as.integer(factor(tolower(trimws(cd$pathologic_stage)),
                                     levels = c("stage i", "stage ii",
                                                "stage iii", "stage iv"))),
-      row.names = rownames(cd),
       stringsAsFactors = FALSE
     )
+
+    # Rename at THIS boundary and nowhere else: `clinical` is os_time/os_event
+    # across the DAG, while Tasks 4.4-4.6 (`fn_fit_cox` and friends all
+    # `stopifnot(all(c("time","status") %in% names(surv_df)))`) and Task 5.2's
+    # `km_subtype_df` contract on time/status. One rename, one source of truth.
+    base <- merge(clinical, covars, by = "sample_id")
+    names(base)[names(base) == "os_time"]  <- "time"
+    names(base)[names(base) == "os_event"] <- "status"
+    stopifnot(sum(base$status == 1L) > 0)  # non-degenerate: at least one event
+
     fac <- as.data.frame(mofa_factors)
     fac$sample_id <- rownames(mofa_factors)
     merged <- merge(base, fac, by = "sample_id")
@@ -4625,7 +5009,7 @@ Assumes Modules 0–2 exist: `R/constants.R` already defines `EPV_CAP <- 10L` an
 
 ---
 
-**Phase 4 exit criteria:** `survival_metrics` reports held-out C-index for Cox / penalised-Cox / RSF plus Cox optimism (apparent − validated) and a 5-year calibration table; `survival_df` decodes `vital_status` robustly and asserts a non-zero event count so no model silently degenerates on a coding mismatch; `bap1_auroc` reports CV + held-out AUROC for the non-circular BAP1 task; the `python` package imports cleanly under pytest (via `pyproject.toml` `pythonpath` + `python/__init__.py`); all Phase-4 unit tests pass (`test-survival.R`, `test_bap1_classifier.py`); the EPV cap is enforced with a test proving the guard throws. These feed Module 5 (`dashboard/survival.qmd`, README results).
+**Phase 4 exit criteria:** `survival_metrics` reports held-out C-index for Cox / penalised-Cox / RSF plus Cox optimism (apparent − validated) and a 5-year calibration table; `survival_df` inherits the OS decode from the canonical `clinical` target (Task 3.6) rather than re-deriving it — one decode, one harmonised sample key, no divergent second derivation in the DAG — and asserts a non-zero event count after the join so no model silently degenerates on a coding mismatch; `bap1_auroc` reports CV + held-out AUROC for the non-circular BAP1 task; the `python` package imports cleanly under pytest (via `pyproject.toml` `pythonpath` + `python/__init__.py`); all Phase-4 unit tests pass (`test-survival.R`, `test_bap1_classifier.py`); the EPV cap is enforced with a test proving the guard throws. These feed Module 5 (`dashboard/survival.qmd`, README results).
 
 ---
 
