@@ -53,22 +53,42 @@ jobs:
 
       # --ignore-installed: the Bioconductor base ships Debian-managed
       # numpy/scipy with no RECORD file, which pip cannot uninstall.
-      - name: Install mofapy2 into the reticulate Python
+      #
+      # scikit-learn is NOT optional here. LEVEL 2 runs a bare `tar_make()`,
+      # which now includes Module 4's `bap1_auroc` -- it sources
+      # python/bap1_classifier.py through reticulate and imports sklearn. Only
+      # validate-container.yml installed it (line 49-50) and that job runs no
+      # tar_make, so before this line NO committed workflow both installed
+      # sklearn AND built the target: `bap1_auroc` had no execution path
+      # anywhere. Pin matches requirements.txt / ci.yml so the container and CI
+      # score the classifier with the same solver.
+      - name: Install mofapy2 + scikit-learn into the reticulate Python
         run: |
           set -euxo pipefail
           apt-get update && apt-get install -y --no-install-recommends python3-dev
           pip3 install --no-cache-dir --break-system-packages --ignore-installed \
-            mofapy2==0.7.2 numpy==1.26.4 pandas==2.2.2 h5py==3.11.0 scipy==1.13.1
+            mofapy2==0.7.2 numpy==1.26.4 pandas==2.2.2 h5py==3.11.0 scipy==1.13.1 \
+            scikit-learn==1.5.1
           mkdir -p /opt/basilisk
           python3 -c "import mofapy2; print('mofapy2', mofapy2.__version__)"
+          python3 -c "import sklearn; print('scikit-learn', sklearn.__version__)"
 
       - name: Install R dependencies
         run: |
           set -euxo pipefail
           R -q -e '
+            # glmnet / randomForestSRC / survival are Module 4s fitters. They
+            # are needed TWICE here: LEVEL 1 runs the whole testthat suite and
+            # five test-survival.R tests call them with no skip guard, and
+            # LEVEL 2s unrestricted tar_make() builds cox_fit /
+            # penalised_cox_fit / rsf_fit, which declare them per-target.
+            # Omitting them made LEVEL 1 quit non-zero, so the job never
+            # reached the real-data build or the credibility anchors -- i.e.
+            # adding Phase 4 silently disabled this workflow.
             pkgs <- c("targets", "tarchetypes", "MultiAssayExperiment",
                       "SummarizedExperiment", "RaggedExperiment",
                       "curatedTCGAData", "MOFA2", "SNFtool", "mclust",
+                      "glmnet", "randomForestSRC", "survival",
                       "minfi", "IlluminaHumanMethylation450kanno.ilmn12.hg19",
                       "reticulate", "testthat", "lintr", "yaml")
             BiocManager::install(pkgs, update = FALSE, ask = FALSE, Ncpus = 4)
@@ -132,6 +152,25 @@ jobs:
             cat("\n### BUILT TARGETS\n"); print(targets::tar_objects())
           '
 
+      # `continue-on-error` above protects the artifacts from an OOM in MOFA
+      # training — it is NOT a licence for a target to fail silently. Without
+      # this gate any Module-4 target could error (reticulate or scikit-learn
+      # absent, a zero-event join, a degenerate design, an EPV throw) and the
+      # run would stay green with nothing recording it. `tar_meta` is read
+      # rather than the step's outcome so the message names the target and
+      # carries its error text.
+      - name: Fail if any target errored during the real-data build
+        run: |
+          R -q -e '
+            meta <- targets::tar_meta(fields = c("error", "warnings"))
+            bad <- meta[!is.na(meta$error), c("name", "error")]
+            if (nrow(bad) > 0) {
+              cat("### TARGETS THAT ERRORED\n"); print(bad, right = FALSE)
+              quit(status = 1)
+            }
+            cat("### no target recorded an error across", nrow(meta), "targets\n")
+          '
+
       - name: Report real integration results
         continue-on-error: true
         run: |
@@ -187,6 +226,49 @@ jobs:
             emit("")
             emit("### FACTOR <-> DRIVER-MUTATION ASSOCIATION (mutation as external label)")
             emit(paste(capture.output(print(ma)), collapse = "\n"))
+
+            # --- Module 4, the ONLY place its targets are ever built --------
+            # Without this block the survival fits and the BAP1 AUROC were
+            # merely constructed and thrown away: nothing printed them and
+            # nothing asserted them, so a degenerate fit left no trace. The
+            # numbers are RECORDED here and ASSERTED by the ANCHOR tests in
+            # the LEVEL-3 step. Nothing here selects or tunes anything.
+            sdf <- targets::tar_read(survival_df)
+            emit("")
+            emit("### MODULE 4 SURVIVAL FRAME")
+            emit(sprintf("rows %d | OS events %d (%.1f%%) | predictors: %s",
+                         nrow(sdf), sum(sdf$status == 1L),
+                         100 * mean(sdf$status == 1L),
+                         paste(targets::tar_read(survival_predictors),
+                               collapse = ", ")))
+            emit(paste(capture.output(print(table(sdf$platform))), collapse = "\n"))
+
+            cf <- targets::tar_read(cox_fit)
+            emit("")
+            emit("### COX FIT (EPV cap measured on the TRAINING rows)")
+            emit(sprintf("train %d / test %d | training events %d | max predictors %d",
+                         nrow(cf$train), nrow(cf$test),
+                         cf$n_events, cf$max_predictors))
+            emit(paste(capture.output(print(summary(cf$model)$coefficients)),
+                       collapse = "\n"))
+
+            m <- targets::tar_read(survival_metrics)
+            emit("")
+            emit("### HELD-OUT C-INDEX PER ARM (higher risk = worse prognosis)")
+            emit(sprintf("cox %.4f | penalised %.4f | rsf %.4f",
+                         m$cindex$cox, m$cindex$penalised, m$cindex$rsf))
+            emit(sprintf("cox optimism (apparent - held-out) = %.4f",
+                         m$optimism$cox))
+            emit("")
+            emit("### 5-YEAR CALIBRATION (Cox, held-out)")
+            emit(paste(capture.output(print(m$calibration)), collapse = "\n"))
+
+            b <- targets::tar_read(bap1_auroc)
+            emit("")
+            emit("### BAP1-FROM-EXPRESSION AUROC (external label, non-circular)")
+            emit(paste(capture.output(print(unlist(
+              b[c("cv_auroc", "heldout_auroc", "n_samples", "n_bap1_mutant")]
+            ))), collapse = "\n"))
             close(out)
           '
 
@@ -197,25 +279,30 @@ jobs:
       # Deliberately NOT continue-on-error: a red anchor on real data is the
       # finding this phase exists to surface.
       #
-      # BOTH FILES, not just test-sanity.R. The three (now five) ANCHOR blocks
-      # in test-clinical.R — including the measured 214/310 split and the
+      # ALL THREE FILES, not just test-sanity.R. The ANCHOR blocks in
+      # test-clinical.R — including the measured 214/310 split and the
       # no-NA-platform-inside-the-cohort property that Phase 4's adjustment
       # actually depends on — used to run NOWHERE: LEVEL 1 explicitly tolerates
       # anchor skips (no store yet) and gates only on non-anchor skips, and this
       # step re-ran a single file, so its zero-skip gate covered test-sanity.R
       # alone. That is precisely the failure mode the paragraph above says this
-      # step exists to prevent. `filter` matches the file stem, so this selects
-      # test-sanity.R and test-clinical.R and nothing else.
-      - name: Credibility anchors against the real store (sanity + clinical)
+      # step exists to prevent. test-survival.R joins them for the same reason:
+      # its four Module-4 anchors read survival_df / cox_fit / survival_metrics
+      # / bap1_auroc, which exist nowhere else, and would otherwise skip in the
+      # one place they can execute. `filter` matches the file stem, so this
+      # selects test-sanity.R, test-clinical.R and test-survival.R and nothing
+      # else — and the count below must be bumped whenever that list changes,
+      # or a new anchor file silently never runs.
+      - name: Credibility anchors against the real store (sanity + clinical + survival)
         run: |
           R -q -e '
             source("R/constants.R")
-            res <- testthat::test_dir("tests/testthat", filter = "sanity|clinical",
+            res <- testthat::test_dir("tests/testthat", filter = "sanity|clinical|survival",
                                       reporter = "summary", stop_on_failure = FALSE)
             df  <- as.data.frame(res)
-            stopifnot(length(unique(df$file)) == 2L)
+            stopifnot(length(unique(df$file)) == 3L)
             anchor <- grepl("^ANCHOR:", df$test)
-            cat("\n### CREDIBILITY ANCHORS (test-sanity.R + test-clinical.R)\n")
+            cat("\n### CREDIBILITY ANCHORS (sanity + clinical + survival)\n")
             cat("anchors :", sum(anchor), "\n")
             for (f in sort(unique(df$file))) {
               cat(sprintf("  %-18s anchors %d\n", f, sum(anchor & df$file == f)))

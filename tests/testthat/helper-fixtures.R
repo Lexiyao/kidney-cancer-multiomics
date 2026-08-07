@@ -43,6 +43,34 @@ load_view_list <- function() {
   )
 }
 
+# --- Reading frozen targets out of the real `_targets` store ---------------
+# MOVED HERE from test-clinical.R, unchanged: it was file-local, so the Module-4
+# anchors in test-survival.R could not reuse it and the Phase-4 targets ended up
+# with no assertion anywhere.
+#
+# Skipping is reserved for the ONE honest case — a store with no pipeline
+# metadata at all (a fresh clone, or the dev machine, where Modules 1-2 never
+# run). A populated store that lacks the target, or records it as errored, is a
+# FAILURE: an anchor that stays green by silently skipping is the false
+# confidence this suite exists to prevent.
+read_pipeline_target <- function(name) {
+  store <- testthat::test_path("..", "..", "_targets")
+  if (!file.exists(file.path(store, "meta", "meta"))) {
+    return(NULL)
+  }
+  meta <- targets::tar_meta(store = store)
+  if (!name %in% meta$name) {
+    stop("the _targets store at ", store, " has pipeline metadata but records ",
+         "no `", name, "` target: the restore predates the platform covariate, ",
+         "or an upstream target failed before it.")
+  }
+  err <- meta$error[meta$name == name]
+  if (!is.na(err[[1]])) {
+    stop(name, " is recorded in the _targets store but ERRORED: ", err[[1]])
+  }
+  targets::tar_read_raw(name, store = store)
+}
+
 # MOFA2 trains through reticulate + the mofapy2 Python module. On a bare host
 # neither is present, so MOFA-dependent tests SKIP; they run for real in the
 # container (RETICULATE_PYTHON + mofapy2, use_basilisk = FALSE).

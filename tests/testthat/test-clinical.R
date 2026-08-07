@@ -243,30 +243,11 @@ test_that("fn_factor_platform_association refuses inputs it cannot score", {
 })
 
 # --- Anchors on the real `clinical` target ---------------------------------
-# Same discipline as read_sanity_results() in test-sanity.R: skipping is
-# reserved for the one honest case — a store with no pipeline metadata at all
-# (a fresh clone, or a local machine, where Modules 1-2 never run). A populated
-# store that lacks the target, or records it as errored, is a FAILURE: an
-# anchor that stays green by silently skipping is the false confidence this
-# suite exists to prevent.
-
-read_pipeline_target <- function(name) {
-  store <- testthat::test_path("..", "..", "_targets")
-  if (!file.exists(file.path(store, "meta", "meta"))) {
-    return(NULL)
-  }
-  meta <- targets::tar_meta(store = store)
-  if (!name %in% meta$name) {
-    stop("the _targets store at ", store, " has pipeline metadata but records ",
-         "no `", name, "` target: the restore predates the platform covariate, ",
-         "or an upstream target failed before it.")
-  }
-  err <- meta$error[meta$name == name]
-  if (!is.na(err[[1]])) {
-    stop(name, " is recorded in the _targets store but ERRORED: ", err[[1]])
-  }
-  targets::tar_read_raw(name, store = store)
-}
+# Same discipline as read_sanity_results() in test-sanity.R. The reader itself,
+# `read_pipeline_target()`, now lives in helper-fixtures.R so the Module-4
+# anchors in test-survival.R can use the same one honest skip rule: a store
+# with no pipeline metadata at all skips; a populated store missing the target,
+# or recording it as errored, FAILS.
 
 test_that("ANCHOR: the clinical target carries a platform factor for the whole cohort", {
   clinical <- read_pipeline_target("clinical")
@@ -358,6 +339,41 @@ test_that("ANCHOR: every factor wired as a survival predictor is platform-clean"
   # verdict for Factor1/Factor4 would be free. MEASURED (run 30911448546): 10 of
   # 15 factors are significant after BH, Factor2 at AUC 0.888.
   expect_gt(sum(fp$q_value <= SANITY_MAX_P), 0L)
+})
+
+test_that("ANCHOR: the wired factors are what the SELECTION RULE mechanically yields", {
+  # THE OTHER HALF OF THE RULE. The anchor above executes clause (1) —
+  # eligibility, q > SANITY_MAX_P and not degenerate. Clauses (2) RANK the
+  # eligible factors by variance explained SUMMED across RNA + Methylation +
+  # CNV and (3) TAKE THE TOP N_SURVIVAL_MOFA_FACTORS, and until now neither was
+  # asserted anywhere: `grep -rn 'mofa_varexp' tests/` returned nothing. That
+  # meant swapping Factor4 for Factor7, Factor13 or Factor15 passed every check
+  # in the repo — INCLUDING swapping it because it gave a better held-out
+  # C-index, which is exactly the selection bias the _targets.R comment
+  # forbids. The rule claims to be DETERMINISTIC; this applies it.
+  #
+  # It can only turn a green verdict RED. It never chooses a factor itself, and
+  # it never reads an outcome.
+  fp <- read_pipeline_target("factor_platform")
+  skip_if(is.null(fp), "factor_platform not in _targets store (run tar_make)")
+  ve <- read_pipeline_target("mofa_varexp")
+  skip_if(is.null(ve), "mofa_varexp not in _targets store (run tar_make)")
+
+  ve <- as.matrix(ve)                       # rows = factors, cols = views
+  expect_true(is.numeric(ve))
+  expect_true(all(is.finite(ve)))
+  expect_false(is.null(rownames(ve)))
+  expect_true(all(fp$factor %in% rownames(ve)))
+
+  # (1) eligibility -> (2) rank on summed variance explained -> (3) take top N.
+  eligible <- fp$factor[fp$q_value > SANITY_MAX_P & !fp$degenerate]
+  expect_gte(length(eligible), N_SURVIVAL_MOFA_FACTORS)
+  total_ve <- rowSums(ve)[eligible]
+  expect_false(anyNA(total_ve))
+  ranked <- names(sort(total_ve, decreasing = TRUE))
+
+  expect_identical(PLATFORM_CLEAN_MOFA_FACTORS,
+                   head(ranked, N_SURVIVAL_MOFA_FACTORS))
 })
 
 test_that("ANCHOR: the two-platform overlap is MEASURED, not asserted", {

@@ -8,8 +8,10 @@ Rendered site: <https://lexiyao.github.io/kidney-cancer-multiomics>
 
 ## Status
 
-Phases 0-3 have run on the real data; Modules 4-6 are not built. **No survival
-model has been fitted, so no C-index, calibration, hazard ratio or
+Phases 0-3 have run on the real data. Module 4 (survival models + BAP1
+classifier) is **implemented and unit-tested on fixtures but has never been
+executed against the frozen snapshot**; Modules 5-6 are not built. **No
+survival model has been fitted, so no C-index, calibration, hazard ratio or
 discrimination result is claimed anywhere.**
 
 **Two of the Module 3 literature anchors came back RED, and they stay red.**
@@ -63,9 +65,23 @@ Verified by real runs against the frozen `curatedTCGAData` KIRC snapshot inside
   (ARI **0.0058**), and the mutation-frequency and ccA/ccB anchors read no
   methylation matrix at all.
 
-**Not yet done:** the survival model and BAP1 classifier (Module 4), the
-dashboard (Module 5) and single-cell (Module 6). No survival or discrimination
-result is claimed anywhere.
+**Built but never run on the snapshot:** Module 4 — the Cox / penalised-Cox /
+RSF survival arms (`R/functions_survival.R`), the from-scratch C-index and
+calibration (`R/functions_model_eval.R`), the BAP1-from-expression classifier
+(`python/bap1_classifier.py`) and the six DAG targets that wire them. The code
+exists and its unit tests pass on synthetic fixtures; the targets have not been
+built in any workflow, so **no C-index, calibration, hazard ratio,
+discrimination or AUROC result is claimed anywhere.**
+
+**Not yet done:** the dashboard (Module 5) and single-cell (Module 6).
+
+**A limit on what the held-out figures will mean when they are produced.** The
+MOFA factors are fitted on all 524 cases, and the 5000-gene variance filter is
+computed over all samples, before either model draws its train/test split. Both
+steps are outcome-blind — no label leak, and the BAP1 task stays non-circular —
+but the test rows did help define the latent axes and the feature set, so the
+held-out C-index and AUROC are *unsupervised-transductive*, not fully
+out-of-sample. The reported optimism bounds the supervised component only.
 
 ## Reproducibility scope (read before trusting the CI badge)
 

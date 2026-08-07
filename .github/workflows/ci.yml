@@ -52,9 +52,18 @@ jobs:
             # SNFtool is NOT in the Bioconductor base image and Module 2s
             # fn_run_snf tests call it directly, so without it
             # tests/testthat.R errors with "there is no package called
-            # SNFtool". MOFA2/mofapy2 are deliberately absent: those tests
+            # SNFtool". The SAME is now true of Module 4s fitters: five tests
+            # in test-survival.R call glmnet::cv.glmnet and
+            # randomForestSRC::rfsrc/predict.rfsrc with NO skip guard -- by
+            # design, because a skip that never lifts is a defect here -- and
+            # neither package ships in this image, which is exactly why
+            # heavy-pull.yml installs glmnet/randomForestSRC/survival
+            # explicitly. tests/testthat.R runs test_dir(stop_on_failure =
+            # TRUE), so omitting them makes this job red on every push.
+            # MOFA2/mofapy2 are deliberately absent: those tests
             # guard on skip_if_no_mofapy2() and run in verify-module2.yml.
             pkgs <- c("testthat", "lintr", "targets", "yaml", "SNFtool",
+                      "glmnet", "randomForestSRC", "survival",
                       "MultiAssayExperiment", "SummarizedExperiment",
                       "RaggedExperiment")
             BiocManager::install(pkgs, update = FALSE, ask = FALSE, Ncpus = 4)
@@ -104,16 +113,22 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      # numpy only: the fixture tests import it. The full requirements.txt
-      # (mofapy2, scanpy, scikit-learn) is the RESEARCH environment, installed
-      # in the Docker image and the heavy-pull job — not needed to lint and run
-      # fixture tests, and pulling it here would make CI slow for no coverage.
+      # numpy + pandas + scikit-learn: Module 4's BAP1-classifier tests
+      # (tests/pytest/test_bap1_classifier.py) import all three and fail
+      # COLLECTION without them, so "numpy only" stopped being true when Task
+      # 4.8 landed. Versions match requirements.txt so CI and the research
+      # container score the classifier with the same solver. The genuinely
+      # heavy parts of requirements.txt (mofapy2, scanpy) stay out — they are
+      # the research environment and are installed in the Docker image and the
+      # heavy-pull job only.
       - name: Install tooling
-        run: pip install ruff pytest "numpy==1.26.4"
-      # `ruff check .` rather than naming directories: `python/` does not exist
-      # until Module 4 creates it, and naming a not-yet-existing path made ruff
-      # exit 1 with "E902 No such file or directory --> python:1:1". Excludes
-      # live in pyproject.toml.
+        run: >
+          pip install ruff pytest "numpy==1.26.4" "pandas==2.2.2"
+          "scikit-learn==1.5.1"
+      # `ruff check .` rather than naming directories: excludes live in
+      # pyproject.toml. (`python/` did not exist until Module 4 created it, and
+      # naming a not-yet-existing path made ruff exit 1 with
+      # "E902 No such file or directory --> python:1:1".)
       - name: Lint Python
         run: ruff check .
       - name: Run pytest on fixtures (skip heavy paths)

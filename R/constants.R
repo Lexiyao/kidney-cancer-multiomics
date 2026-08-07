@@ -416,3 +416,12 @@ VITAL_STATUS_DEAD_VALUES <- c("dead", "deceased", "1")
 # make a failing stratum check pass. A matrix gutted by missingness stops
 # loudly rather than clustering its remnants into a silent green.
 SANITY_MIN_COMPLETE_FRAC <- 0.5
+
+# --- Module 4: survival + classifier model parameters ---
+HELDOUT_FRACTION      <- 0.30      # held-out test fraction (spec §6c)
+CV_FOLDS              <- 5L        # cv.glmnet / StratifiedKFold folds
+MODEL_SEED            <- 20160128L # snapshot date, reused as RNG seed
+RSF_NTREE             <- 1000L     # randomForestSRC trees
+CALIBRATION_BINS      <- 5L        # risk-group bins for grouped calibration
+SURVIVAL_HORIZON_DAYS <- 5 * 365   # 5-year OS calibration horizon
+BAP1_LABEL_COL        <- "BAP1"    # column of mut_annot holding BAP1 status

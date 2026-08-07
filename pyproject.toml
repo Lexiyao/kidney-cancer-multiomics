@@ -13,6 +13,11 @@ exclude = [
 ]
 
 [tool.pytest.ini_options]
+# Repo root on sys.path so `from python.bap1_classifier import ...` resolves.
+# Without it pytest's default prepend import mode puts only the test file's own
+# rootdir on the path and collection fails with
+# `ModuleNotFoundError: No module named 'python'`.
+pythonpath = ["."]
 testpaths = ["tests/pytest"]
 markers = [
     "heavy: triggers a heavy pull (mofapy2/scanpy); skipped in CI",

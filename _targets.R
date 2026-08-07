@@ -321,5 +321,212 @@ list(
       subtype_platform = fn_check_subtype_platform(subtypes_mofa,
                                                    methyl_platform)
     )
-  )
+  ),
+
+  # --- Module 4: survival ---------------------------------------------------
+  # SELECTION RULE (load-bearing — read before changing this vector).
+  # It is DETERMINISTIC and OUTCOME-BLIND, and it lives in R/constants.R:
+  #   (1) ELIGIBILITY: q > SANITY_MAX_P against the HM27/HM450 split in the
+  #       `factor_platform` target (the in-DAG recomputation of run
+  #       30911448546).
+  #   (2) RANKING: eligible factors by TOTAL variance explained SUMMED across
+  #       RNA + Methylation + CNV in `mofa_varexp` — summed, not max, not one
+  #       chosen view, because the views differ in scale and picking one after
+  #       the fact is a free parameter.
+  #   (3) COUNT: the top N_SURVIVAL_MOFA_FACTORS = 2, fixed IN ADVANCE by the
+  #       predictor budget (2 factors + age + stage + platform = 5 terms
+  #       against an EPV-10 cap of 17, 14 at the 5-year horizon), not chosen
+  #       after seeing the ranking. Factor15's marginal q (0.058) needs no
+  #       special rule: it is eligible and simply ranks fifth.
+  # Applied: Factor1 (19.11% summed) and Factor4 (12.31%) — the full ranking,
+  # the ineligible factors (Factor2 AUC 0.888, Factor3 0.658, ...) and the
+  # provenance are recorded once, on PLATFORM_CLEAN_MOFA_FACTORS.
+  #
+  # It is NEVER chosen on survival association. Picking factors by how well
+  # they predict the outcome and then reporting that model's discrimination on
+  # the same cohort is selection bias — the C-index would be optimistic by
+  # construction and the held-out split would not repair it. The choice was
+  # fixed from the platform diagnostic and the Module-2 variance table BEFORE
+  # any survival model was fitted.
+  #
+  # DEVIATION FROM THE PLAN, RECORDED: the plan's literal block writes
+  # `c("Factor1", "Factor4", "age_years", "stage_num", "platform")`. That is a
+  # SECOND copy of PLATFORM_CLEAN_MOFA_FACTORS, and the anchor that keeps the
+  # selection falsifiable (test-clinical.R, "every factor wired as a survival
+  # predictor is platform-clean") asserts against the CONSTANT, not against
+  # this target — so an edit to the constant would leave the wired vector
+  # stale and the anchor would still pass. Referencing the constant is the same
+  # one-source-of-truth rule this Task applies to the OS decode below.
+  #
+  # `platform` is an ADJUSTMENT COVARIATE, not a finding: the merged
+  # HM27 214 / HM450 310 matrix received NO batch correction (too few
+  # overlapping cases to validate one — see `methyl_platform_overlap` — and the
+  # probe sets differ), so the residual assay effect is modelled explicitly
+  # instead of being assumed away. It costs 1 df.
+  tar_target(
+    survival_predictors,
+    c(PLATFORM_CLEAN_MOFA_FACTORS, "age_years", "stage_num", "platform")
+  ),
+
+  tar_target(survival_df, {
+    cd <- as.data.frame(MultiAssayExperiment::colData(mae_qc))
+
+    # SURVIVAL COMES FROM `clinical` (Module 1/3), NOT from a second decode
+    # here. This target used to re-derive vital_status / days_to_death /
+    # days_to_last_followup independently and key on RAW `rownames(cd)`, while
+    # `clinical` decodes with VITAL_STATUS_DEAD_VALUES and keys on harmonised
+    # patient barcodes. That put two divergent OS derivations, with
+    # incompatible keys, into the same DAG — and the failure mode where a
+    # {dead, deceased} test against a 0/1-coded vital_status yields zero events
+    # and an unfalsifiable survival model.
+    #
+    # Only the NON-survival covariates are read from colData here.
+    req_cols <- c("years_to_birth", "pathologic_stage")
+    missing_cols <- setdiff(req_cols, colnames(cd))
+    stopifnot(length(missing_cols) == 0)
+
+    covars <- data.frame(
+      sample_id = fn_harmonise_ids(rownames(cd)),
+      age_years = as.numeric(cd$years_to_birth),
+      stage_num = as.integer(factor(tolower(trimws(cd$pathologic_stage)),
+                                    levels = c("stage i", "stage ii",
+                                               "stage iii", "stage iv"))),
+      stringsAsFactors = FALSE
+    )
+
+    # Rename at THIS boundary and nowhere else: `clinical` is os_time/os_event
+    # across the DAG, while the fitters (fn_fit_cox and friends all
+    # `stopifnot(all(c("time","status") %in% names(surv_df)))`) and Module 5's
+    # km_subtype_df contract on time/status. One rename, one source of truth.
+    base <- merge(clinical, covars, by = "sample_id")
+    names(base)[names(base) == "os_time"]  <- "time"
+    names(base)[names(base) == "os_event"] <- "status"
+    stopifnot(sum(base$status == 1L) > 0)  # non-degenerate: at least one event
+
+    fac <- as.data.frame(mofa_factors)
+    fac$sample_id <- rownames(mofa_factors)
+    merged <- merge(base, fac, by = "sample_id")
+
+    # Platform adjustment covariate — ALREADY PRESENT, inherited from
+    # `clinical`. DO NOT RE-JOIN IT HERE. `clinical` carries it "so that exactly
+    # one clinical table exists in the DAG and the covariate cannot drift away
+    # from the outcome it is fitted beside", and the merge above already brings
+    # it in. An earlier draft re-derived it as
+    # `merged$platform <- methyl_platform[merged$sample_id]`, silently
+    # OVERWRITING the inherited column: the values agreed (same upstream
+    # target) so nothing failed, but the survival frame's platform then no
+    # longer came from the canonical clinical table and the assertions
+    # validated the re-join rather than the inherited column. It was also
+    # ORDER-DEPENDENT — move the overwrite below the complete.cases filter and
+    # the filter uses a different column from the model.
+    #
+    # `clinical$platform` is NA outside the 524-case main cohort; the merge
+    # with `mofa_factors` above restricts to that cohort, which is why the
+    # no-NA assertion can be unconditional here.
+    stopifnot("platform" %in% names(merged),
+              !any(is.na(merged$platform)),
+              nlevels(droplevels(merged$platform)) == 2L)
+
+    merged <- merged[stats::complete.cases(
+      merged[, c("time", "status", survival_predictors)]), , drop = FALSE]
+    merged <- merged[merged$time > 0, , drop = FALSE]
+    stopifnot(sum(merged$status == 1L) > 0)  # events survive the row filtering
+    merged
+  }),
+
+  # All three arms take the SAME held-out split (same helper, same default
+  # seed), so their C-indices are comparable and none of them ever sees the
+  # test rows during fitting: cv.glmnet picks lambda inside TRAIN, the forest
+  # is grown on TRAIN, and the test part is only ever scored.
+  tar_target(cox_fit,
+             fn_fit_cox(survival_df, survival_predictors)),
+  tar_target(penalised_cox_fit,
+             fn_fit_penalised_cox(survival_df, survival_predictors),
+             packages = c(tar_option_get("packages"), "glmnet")),
+  tar_target(rsf_fit,
+             fn_fit_rsf(survival_df, survival_predictors),
+             packages = c(tar_option_get("packages"), "randomForestSRC")),
+
+  tar_target(survival_metrics, {
+    c_cox <- fn_cindex(cox_fit$test$time, cox_fit$test$status, cox_fit$risk_test)
+    c_pen <- fn_cindex(penalised_cox_fit$test$time,
+                       penalised_cox_fit$test$status, penalised_cox_fit$risk_test)
+    c_rsf <- fn_cindex(rsf_fit$test$time, rsf_fit$test$status, rsf_fit$risk_test)
+    # Optimism = apparent (train) minus validated (held-out) C-index for Cox.
+    # REPORTED, never subtracted away: subtypes and factors were derived from
+    # the same omics, so the apparent figure is optimistic by construction and
+    # the gap is the finding, not an embarrassment to be hidden.
+    #
+    # THE HELD-OUT FIGURE IS NOT FULLY OUT-OF-SAMPLE EITHER, and saying so here
+    # is the point: `mofa_factors` is fitted by fn_run_mofa on ALL 524 cases —
+    # the same rows fn_split_train_test later calls the TEST set — so the
+    # latent axes the model is built on were defined with the held-out rows
+    # contributing. MOFA never sees an outcome, so this is NOT a label leak and
+    # the non-circularity claim stands; it is UNSUPERVISED-TRANSDUCTIVE
+    # optimism. The number reported below therefore bounds the SUPERVISED
+    # component ONLY. A fully out-of-sample estimate would mean refitting MOFA
+    # (and the top-variable-gene filter) inside every training split, which is
+    # out of scope at this cohort size. Mirrored in the README limitations.
+    c_cox_train <- fn_cindex(cox_fit$train$time, cox_fit$train$status,
+                             cox_fit$risk_train)
+    # Calibration for Cox at the 5-year horizon
+    # (survival prob = exp(-baseline * exp(lp))). basehaz(centered = TRUE) and
+    # predict(type = "lp") share the SAME centring at the training means, so
+    # the two halves of this expression are on one scale.
+    bh <- survival::basehaz(cox_fit$model, centered = TRUE)
+    h0 <- approx(bh$time, bh$hazard, xout = SURVIVAL_HORIZON_DAYS,
+                 rule = 2)$y
+    pred_surv <- exp(-h0 * exp(cox_fit$risk_test))
+    cal <- fn_calibration(cox_fit$test$time, cox_fit$test$status,
+                          pred_surv, SURVIVAL_HORIZON_DAYS)
+    list(
+      cindex = list(cox = c_cox, penalised = c_pen, rsf = c_rsf),
+      optimism = list(cox = c_cox_train - c_cox),
+      calibration = cal
+    )
+  }),
+
+  # ---- Module 4: non-circular BAP1 classifier (R+Python via reticulate) ----
+  # The label (BAP1 somatic-mutation status) is EXTERNAL to the features
+  # (log-transformed normalised expression), so this is the non-tautological
+  # counterpart the spec demands in section 6b -- unlike predicting subtypes,
+  # which were themselves derived from this expression matrix.
+  #
+  # `rna_mat` is the top-variable-gene subset. That filter is UNSUPERVISED
+  # (variance only, no reference to BAP1), so it selects features without
+  # seeing the label and does not leak it. It is, however, computed over ALL
+  # samples — including the rows the classifier is later scored on — so
+  # `heldout_auroc` is transductive in the same sense the survival C-index is:
+  # outcome-blind, hence non-circular, but not fully out-of-sample. Within the
+  # Python function the standardiser sits inside the pipeline, so it is
+  # refitted per CV fold and on the training split only.
+  #
+  # reticulate is declared per-target, never in tar_option_set: a global entry
+  # makes every unrelated target unbuildable on a machine without it (the same
+  # rule mofa_model and methyl_anno document above).
+  tar_target(bap1_auroc, {
+    reticulate::source_python("python/bap1_classifier.py")
+    # Restrict to the n=417 mutation subset and align samples to expression
+    # (413 of those cases fall inside the 524-case main cohort).
+    common <- intersect(colnames(rna_mat), rownames(mut_annot))
+    # The plan's assertion here was `length(common) > 0`, which passes on an
+    # overlap of one. Reuse the guard fn_annotate_mutation already applies to
+    # the same join instead: a divergent ID space (aliquot barcodes vs
+    # harmonised patient IDs) collapses the overlap, and a handful of samples
+    # would otherwise reach scikit-learn and produce an AUROC on noise.
+    stopifnot(BAP1_LABEL_COL %in% names(mut_annot),
+              length(common) >= MIN_MUT_ANNOT_SAMPLES)
+    expr_df <- as.data.frame(t(rna_mat[, common, drop = FALSE]))  # samples × genes
+    labels  <- as.integer(mut_annot[common, BAP1_LABEL_COL])
+    res <- train_bap1_classifier(
+      reticulate::r_to_py(expr_df),
+      reticulate::r_to_py(labels)
+    )
+    # source_python(convert = TRUE) -- the default -- already hands back an R
+    # list, and reticulate::py_to_r() STOPS with "Object to convert is not a
+    # Python object" when it is given one. The guard keeps the plan's explicit
+    # conversion for a convert = FALSE session without making the default
+    # session error on a value that is already converted.
+    if (inherits(res, "python.builtin.object")) reticulate::py_to_r(res) else res
+  }, packages = c(tar_option_get("packages"), "reticulate"))
 )
