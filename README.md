@@ -8,7 +8,14 @@ Rendered site: <https://lexiyao.github.io/kidney-cancer-multiomics>
 
 ## Status
 
-Phases 0-1 complete and verified on the real data; Modules 2-6 not yet built.
+Phases 0-3 have run on the real data; Modules 4-6 are not built. **No survival
+model has been fitted, so no C-index, calibration, hazard ratio or
+discrimination result is claimed anywhere.**
+
+**Two of the Module 3 literature anchors came back RED, and they stay red.**
+They are on the front page rather than only in the design docs, because a
+status section reporting only the green ones would misrepresent what this
+pipeline found.
 
 Verified by real runs against the frozen `curatedTCGAData` KIRC snapshot inside
 `bioconductor/bioconductor_docker:RELEASE_3_23`:
@@ -27,15 +34,47 @@ Verified by real runs against the frozen `curatedTCGAData` KIRC snapshot inside
 - **`renv.lock`**: a complete 218-package lock snapshotted from a machine with
   every Import installed — not hand-authored.
 
-**Not yet done:** MOFA2 integration (Module 2), the literature positive-control
-suite (Module 3), the survival model and BAP1 classifier (Module 4), the
-dashboard (Module 5) and single-cell (Module 6). No factor, subtype, survival
-or discrimination result is claimed anywhere.
+- **Module 2 integration** (run `30718392588`): MOFA2 trained on the three
+  views; subtypes imbalanced (S1=20, S2=306, S3=76, S4=122); MOFA-vs-SNF
+  concordance ARI **0.351** — moderate, not high. Raw output at
+  `docs/results/module2-run-30718392588.txt`.
+- **Module 3 credibility anchors** (run `30840373033`), three green, one red:
+
+  | check | verdict | measured |
+  |---|---|---|
+  | `mutation_freq` | **PASS** | VHL 44.8%, PBRM1 30.5%, SETD2 10.1%, BAP1 8.6% — all inside published ranges, n=417 |
+  | `ccab_signature` | **PASS** | ccA/ccB anti-correlation rho **−0.354**, p 6.5e-17, full 6+6 panels |
+  | `bap1_survival` | **DIRECTIONALLY RIGHT, UNDERPOWERED** | HR **1.584**, 95% CI 0.967–2.595, p 0.068, n=417. This is a positive control, not a result: the direction matches the literature, the significance is out of this cohort's reach (Schoenfeld needs ~470 events) |
+  | `methyl_strata` | **RED — a real negative result** | silhouette 0.1197, Kruskal p 1.3e-82, but cluster-vs-platform ARI **0.583** against a 0.25 ceiling |
+
+- **Platform confound** (run `30911448546`): the cohort is **214 HM27 / 310
+  HM450**, merged with no batch correction. The merged methylation partition
+  tracks the **assay**, not the biology — and the within-platform 4-means
+  silhouettes (HM27 0.0858, HM450 0.0489) are BOTH *below* the merged 0.1197,
+  so the merge is what manufactures the apparent structure. Decision taken:
+  keep all 524 cases, do **not** restrict to one platform, and apply **no**
+  batch correction (too few cases are assayed on both platforms for ComBat to
+  be validated, and the probe sets differ); adjust for platform as a covariate
+  and take predictors only from the platform-clean factors instead.
+  `SANITY_MAX_PLATFORM_ARI` stays at 0.25 and the m1–m4 anchor stays failing —
+  its job now is to fail *informatively*. Raw output at
+  `docs/results/platform-diagnosis-run-30911448546.txt`.
+- **What the confound does NOT touch**: the MOFA subtypes are platform-clean
+  (ARI **0.0058**), and the mutation-frequency and ccA/ccB anchors read no
+  methylation matrix at all.
+
+**Not yet done:** the survival model and BAP1 classifier (Module 4), the
+dashboard (Module 5) and single-cell (Module 6). No survival or discrimination
+result is claimed anywhere.
 
 ## Reproducibility scope (read before trusting the CI badge)
 
-- The research core is a **frozen 2016 snapshot** (`curatedTCGAData` 1.34.0,
-  snapshot `20160128`, hg19). It never updates.
+- The research core is a **frozen 2016 snapshot**: `curatedTCGAData` **data
+  version 2.0.1** (the `version=` argument, `CURATED_VERSION` in
+  `R/constants.R`), snapshot `20160128`, hg19, served by the
+  `curatedTCGAData` **package** 1.34.0 pinned in `renv.lock`. The two numbers
+  are different things and both appear in the design docs; the one that
+  determines the data is 2.0.1. It never updates.
 - **CI does NOT run the full pipeline.** CI lints, runs unit tests on
   subsampled fixtures, and renders the dashboard from cached `_targets` /
   release-asset results. A green CI badge is **not** full reproduction.

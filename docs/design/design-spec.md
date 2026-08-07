@@ -242,10 +242,36 @@ figures:
 - Recovery of TCGA KIRC methylation strata (m1–m4).
 - ccA / ccB expression-signature separation.
 
+**STATUS: the suite has now RUN ON REAL DATA, and two of the four anchors are red.** GitHub Actions
+run 30840373033 built `sanity_results` on the frozen curatedTCGAData 2.0.1 KIRC snapshot 20160128
+(11 anchors, 57 assertions passed, 4 failed, **0 skipped** — every anchor genuinely executed; those
+are the counts AS OF run 30840373033, not live figures — the suite now carries 19 anchors across
+`test-sanity.R` and `test-clinical.R`);
+transcript at `docs/results/phase3-anchors-run-30840373033.txt`, follow-up platform diagnostic
+(run 30911448546) at `docs/results/platform-diagnosis-run-30911448546.txt`.
+
+- **PASS — mutation frequencies.** VHL 44.8%, PBRM1 30.5%, SETD2 10.1%, BAP1 8.6%; all four inside
+  their published ranges on the n=417 mutation subset.
+- **PASS — ccA/ccB.** Anti-correlation rho = −0.354 (p = 6.5e-17), silhouette 0.582, separation
+  p = 3.6e-37, full 6+6 marker panels used.
+- **RED (underpowered, not contradicted) — BAP1 survival.** HR = 1.584, 95% CI 0.967–2.595,
+  p = 0.0677, n = 417. The DIRECTION the literature predicts holds; the significance assertion does
+  not, and the arithmetic in §12 shows this cohort could never have supplied it. The direction
+  requirement is unchanged; only the significance demand is retired, and only because it is
+  demonstrably mis-specified.
+- **RED (real negative result) — m1–m4 methylation strata.** Silhouette 0.1197 and Kruskal
+  p = 1.3e-82, but adjusted Rand index against the HM27/HM450 assay split is **0.583** versus a
+  0.25 veto. The four "strata" substantially track the platform, not the tumour. The anchor STAYS
+  failing; no threshold was moved (§12).
+
+**A red anchor is this suite doing its job.** It caught a batch effect that a silhouette reported
+on its own would have sold as biology. The two reds are not interchangeable: one says the cohort is
+too small to answer the question asked, the other says the answer obtained is an artefact.
+
 Unit tests cover deterministic helpers (ID harmonisation, matrix alignment, transforms) on
 subsampled fixtures. Target ~80% coverage on the helper/utility layer; the analysis itself is
 validated by these literature positive controls. **This suite is the single most persuasive part
-of the repo.**
+of the repo** — and it is persuasive precisely because it is allowed to come back red.
 
 ---
 
@@ -318,14 +344,63 @@ independent increment that cannot block release.
   instead of the merged methylation platforms. **Events, not n, bound the survival model:** the
   main cohort yields 173 OS events (33.1%, median follow-up 1188 days; 148 within 5 years), so the
   EPV-10 cap is 17 predictors (14 restricted). The model is kept low-dimensional well inside that
-  — 5 predictors wired — and never uses genome-wide feature selection (§2).
+  — 5 predictors wired (`Factor1`, `Factor4`, `age_years`, `stage_num`, `platform`) — and never
+  uses genome-wide feature selection (§2). The two factors are chosen OUTCOME-BLIND, on
+  platform-cleanliness (BH q > 0.05 against the assay split) and variance explained only; choosing
+  them on survival association would bias the model, so it is forbidden.
+- **Methylation platform confound — the largest single limitation, and it is measured, not
+  suspected.** `methyl_mat` is `cbind(HM27, HM450)` on common CpGs with **no batch correction**:
+  the 524-case cohort is **HM27 214 / HM450 310**. Run 30911448546 tested every MOFA factor against
+  that split (rank-biserial AUC, 0.5 = no platform information, BH-adjusted). **The two largest
+  methylation-loaded factors are substantially assay effects: Factor2 AUC 0.888 (q 2.9e-50) and
+  Factor5 0.818 (q 2.0e-34)**, followed by Factor6 0.735 (its recorded p = q = 0 is a defect —
+  impossible at n = 214/310, where the Wilcoxon normal approximation floors at 1.98e-84 — and it
+  is what depressed the two q values above, printed as 1.4e-50 / 1.3e-34; see the post-hoc
+  annotation in `docs/results/platform-diagnosis-run-30911448546.txt`), Factor3 0.658 (q 2.7e-09), and
+  Factor9/8/11/14/10/12 all significant. Only **Factor1 (AUC 0.500, q 0.993), Factor4 (0.535,
+  q 0.217), Factor7 (0.532, q 0.243), Factor13 (0.523, q 0.389)** — and marginally Factor15 (0.552,
+  q 0.058) — carry no detectable platform signal. Consequently the m1–m4 positive control is RED:
+  adjusted Rand index 0.583 against a 0.25 veto (§7). **The strata are not recovered inside a
+  single platform:** within-arm 4-means silhouettes are HM27 0.0858 (n=214, 4658 CpGs) and HM450
+  0.0489 (n=310, 4905 CpGs), both BELOW the merged 0.1197 — the merge manufactures the apparent
+  structure rather than diluting real structure. **No batch correction was applied and none will
+  be:** only 3 cases overlap the two platforms and the probe sets differ, so a ComBat-style
+  correction could be neither validated nor trusted not to erase biology along with batch. The
+  handling is instead (i) platform as an explicit model covariate and (ii) predictors drawn only
+  from the platform-clean factors, chosen outcome-blind on cleanliness and variance explained.
+- **The good news, stated as precisely as the bad.** The MOFA **subtypes are platform-clean**:
+  adjusted Rand index between `subtypes_mofa` and platform is **0.0058** (S1 11/9, S2 120/186,
+  S3 33/43, S4 50/72 across HM27/HM450). The 4-means partition over the 15-factor space does not
+  recover the assay split even though several individual factors do, so subtype-based analyses are
+  not platform-confounded. The mutation-frequency and ccA/ccB anchors touch no methylation matrix
+  at all.
+- **BAP1 survival is underpowered by construction, and the anchor demanded what the cohort cannot
+  give.** Observed HR = 1.584 (95% CI 0.967–2.595, p = 0.0677, n = 417) — right direction, not
+  significant. Schoenfeld: with ln HR = 0.460 and a mutant fraction of 8.63% (36/417,
+  p₁·p₂ = 0.0789), 80% power at two-sided 0.05 needs (1.960 + 0.842)² / (0.0789 × 0.460²) ≈ **470
+  events**. The mutation subset supplies ≈ **138 events, ≈ 12 of them in the mutant arm** — power
+  ≈ **0.33**, and the smallest hazard ratio detectable at 80% power is **HR ≈ 2.34**.
+  ⚠️ **The 138 and the 12 are DERIVED, NOT RECORDED.** No committed transcript prints an event
+  count for this fit — run 30840373033 emitted only `hr` / `ci_low` / `ci_high` / `p_value` / `n`,
+  and `grep n_events docs/results/` returns nothing. The recorded interval additionally implies
+  ≈ **18** mutant-arm events, not 12: SE(ln HR) = ln(2.5946/0.9670)/(2·1.96) = 0.2518 (which
+  reproduces the recorded p = 0.0677 exactly), and SE ≈ √(1/d₁ + 1/d₀) with d₁ + d₀ = 138 gives
+  d₁ ≈ 18. `verify-module2.yml` LEVEL 3 now prints `n_events` / `n_mutant` / `n_events_mutant` /
+  `events_required` / `underpowered`; re-run it, commit the transcript and re-cite that run before
+  treating either number as measured. So the
+  significance requirement, not the data, was mis-specified; the HR > 1 direction requirement
+  stands unchanged. Report BAP1 as directionally consistent with the literature and underpowered
+  here — never as a negative finding, and never as a confirmation.
 - **Measured ≠ fitted.** What has been run on the real snapshot is the cohort census, the OS event
   census, and Module 1 (ingest/preprocess) end-to-end — `cohort_n = 524`, `rna_mat` 5000 × 524,
   `methyl_mat` 5000 × 524, `cnv_mat` 24776 × 524, `mut_annot` 417 × 7 (`sample_id` character, six
   0/1 integer gene columns: VHL, PBRM1, SETD2, BAP1, MTOR, KDM5C), so the canonical `mut_annot`
-  contract now holds on real data, not only on synthetic fixtures. **MOFA2 integration (Module 3)
-  has not been run and the survival model has not been fitted**; no factor, subtype, or
-  discrimination result is claimed anywhere yet.
+  contract now holds on real data, not only on synthetic fixtures. MOFA2 integration has since run
+  too (15 factors on n=524, run 30718392588) and the positive-control suite has run on its output
+  (run 30840373033), so factor, subtype and anchor results ARE now claimed — with the platform
+  caveats above attached to every methylation-loaded one. **The survival model has still NOT been
+  fitted**: no Phase-4 function exists in `R/` yet, and no C-index, calibration, or survival hazard
+  ratio is claimed anywhere. The only hazard ratio in the repo is the BAP1 positive control above.
 - **Frozen 2016 / hg19 snapshot**; genuine live-update is limited to the GDC statistics panel.
   Sample counts from the frozen snapshot **do not match** the current GDC portal in either
   direction (mutation covers more cases, CNV and HM450 fewer — see §2), so every quoted n must

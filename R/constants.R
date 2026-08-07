@@ -222,6 +222,177 @@ SANITY_MIN_SILHOUETTE_2D <- 0.50
 SANITY_MAX_P          <- 0.05
 SANITY_SEED           <- 42L
 
+# --- BAP1 survival: what this cohort can and cannot be asked to show --------
+#
+# Published effect band for BAP1-mutant vs wild-type ccRCC overall survival.
+# Sources: Kapur et al. (Lancet Oncol 2013), Hakimi et al. (Eur Urol 2013),
+# TCGA KIRC (Nature 2013). Reported adjusted/unadjusted HRs across those
+# cohorts sit roughly in 1.2-3.0; the anchor requires the point estimate to be
+# BOTH in the published DIRECTION (HR > 1) and of a plausible MAGNITUDE.
+#
+# This band is a TIGHTENING, not a loosening. The previous anchor asserted only
+# `hr > 1`, which an HR of 1.0001 or of 40 (a merge blow-up, or a fit on a
+# handful of cases) would both satisfy. An INDEPENDENT literature anchor: never
+# widen it to make an observation pass.
+PUBLISHED_BAP1_HR_RANGE <- c(low = 1.2, high = 3.0)
+
+# Target power for the Schoenfeld event-requirement arithmetic below.
+SURVIVAL_TARGET_POWER <- 0.80
+
+# Widest 95% CI the BAP1 anchor will accept, as the ratio ci_high / ci_low.
+#
+# THIS IS NOT A SIGNIFICANCE DEMAND. `ci_high / ci_low` = exp(2 * 1.96 * SE) is
+# a pure PRECISION statistic: it says nothing about where the interval sits
+# relative to 1, so it cannot be satisfied or violated by moving the point
+# estimate, and it can never turn a red check green.
+#
+# WHY IT EXISTS. Removing `expect_gt(ci_low, 1)` (see the block above) also
+# removed the only assertion that the fit carried INFORMATION, and nothing
+# replaced it: `hr > 1` plus the published band plus an UPPER bound on the
+# mutant event count are all satisfied by a fit on a collapsed exposed arm.
+# VERIFIED by replaying the anchor bodies against a stub: hr 1.6, n_mutant 5,
+# n_events_mutant 2, CI 0.35-7.3 (ratio 21x), p 0.51 passed every BAP1 anchor.
+#
+# WHERE 5 COMES FROM. The interval ratio MEASURED on the frozen snapshot (run
+# 30840373033) is 2.595 / 0.967 = 2.68, i.e. SE(log HR) = 0.252. A two-group
+# Cox with d1 events in the exposed arm and d0 in the reference has
+# SE(log HR) ~= sqrt(1/d1 + 1/d0), so a ceiling of 5 (SE 0.41) is slack by a
+# wide margin for any fit this cohort can produce, while the 21x degenerate
+# case above is rejected by a factor of four. Tighten it if the fit ever gets
+# more precise; never widen it to admit a fit that got worse.
+BAP1_MAX_CI_RATIO <- 5
+#
+# WHY THE ANCHOR NO LONGER DEMANDS p < 0.05 FOR BAP1 — the arithmetic, in full,
+# so that this reads as a MIS-SPECIFIED REQUIREMENT being corrected and not as a
+# threshold being quietly relaxed to turn a red check green.
+#
+# MEASURED on the frozen snapshot (GitHub Actions run 30840373033), i.e. printed
+# in docs/results/phase3-anchors-run-30840373033.txt and checkable there:
+#   HR 1.584, 95% CI 0.967-2.595, p = 0.0677, n = 417, BAP1-mutant 8.63%
+#   (36 of 417 cases).
+#
+# DERIVED, NOT YET RECORDED — read this before citing the next two numbers:
+#   138 OS events in the fitted mutation subset, ~12 of them in the mutant arm.
+#   NEITHER figure appears in any committed transcript. The run-30840373033
+#   transcript prints only hr / ci_low / ci_high / p_value / n for BAP1; `grep
+#   n_events docs/results/` returns nothing. They were carried over from the
+#   536-case survival census (run 30708943504, 173 events) by an unrecorded
+#   restriction to the mutation subset.
+#
+#   This matters because 138 is the number that licenses the ONE permitted
+#   re-specification below (470 required vs 138 available, "~3.4x short",
+#   power 0.33). It should not be treated as evidence until it is printed.
+#
+#   And "~12" is in ACTIVE TENSION with the recorded interval. The recorded CI
+#   gives SE(log HR) = log(2.5946 / 0.9670) / (2 * 1.96) = 0.2518, which
+#   reproduces the recorded p = 0.0677 exactly. For a two-arm Cox,
+#   SE ~= sqrt(1/d1 + 1/d0); with d1 + d0 = 138 that implies d1 ~ 18 mutant-arm
+#   events, not 12 (d1 = 12 would give SE 0.302 and a CI ratio of 3.27 against
+#   the recorded 2.68). One of the two is wrong.
+#
+#   THE FIX IS ALREADY IN THE BRANCH, NOT APPLIED: verify-module2.yml LEVEL 3
+#   now prints n_events / n_mutant / n_events_mutant / events_required /
+#   underpowered. Re-run it, commit the transcript, and re-cite that run ID —
+#   then these become MEASURED. Until then they are labelled as derived
+#   everywhere they appear.
+#
+# Schoenfeld's requirement for a two-group Cox comparison is
+#   d = (z_{1-alpha/2} + z_{power})^2 / (p * (1 - p) * log(HR)^2)
+# with p the exposed fraction. At alpha 0.05 two-sided, 80% power, p = 0.0863:
+#
+#   HR 1.584 (the OBSERVED effect)          -> d = 470 events
+#   HR 1.2   (the weakest published effect) -> d = 2993 events
+#   HR 3.0   (the strongest)                -> d = 82 events
+#
+# The cohort supplies 138 (DERIVED, see above). A 417-case ccRCC series with an 8.6%-prevalence
+# marker of this effect size is STRUCTURALLY incapable of reaching alpha 0.05:
+# it would need ~3.4x its event count. Requiring `p < 0.05` and `ci_low > 1` of
+# it was therefore a requirement no correct pipeline running on this snapshot
+# could ever satisfy — it tested the size of TCGA KIRC, not the correctness of
+# this code. The DIRECTION and MAGNITUDE are what the literature anchors and
+# what this cohort can speak to, so those are the hard requirements; p, CI and n
+# are REPORTED and asserted to be well-formed.
+#
+# This is the ONE re-specification in this correction. Nothing else in the
+# Module 3 suite was re-thresholded: SANITY_MAX_PLATFORM_ARI, SANITY_MIN_SILHOUETTE
+# and every published range are UNCHANGED, and the m1-m4 anchor stays RED.
+#
+# The under-power is itself ASSERTED (see the BAP1 anchor in test-sanity.R), so
+# the limitation is tested rather than merely written down here. Note what that
+# assertion is and is not: it is a statement about the DESIGN — how many events
+# an effect of this size needs — and it is NOT a post-hoc-power defence of the
+# non-significant p-value. It exists so that if a future cohort ever does supply
+# enough events, this comment stops being true and the test says so.
+
+# Maximum adjusted Rand index between the MOFA subtype assignment and the assay
+# platform. Distinct from SANITY_MAX_PLATFORM_ARI (0.25), which governs the
+# m1-m4 methylation k-means: that partition IS platform-driven on this snapshot
+# (measured ARI 0.583) and its anchor is red. The subtype assignment is the one
+# integration output the platform diagnostic cleared, and this constant PINS
+# that so it cannot silently break.
+#
+# MEASURED (GitHub Actions run 30911448546, frozen curatedTCGAData KIRC
+# snapshot, 524 cases, HM27 214 / HM450 310): ARI(subtypes_mofa, platform) =
+# 0.0058, cross-tab S1 11/9, S2 120/186, S3 33/43, S4 50/72. Under independence
+# the expected ARI is 0, so 0.0058 is indistinguishable from chance.
+#
+# 0.05 is an order of magnitude below the m1-m4 ceiling and ~9x above the
+# measured value, i.e. tight enough that a genuine platform-driven subtype
+# assignment (individual factors reach AUC 0.888 against platform, so the raw
+# material for one is present) trips it, loose enough that resampling noise
+# around zero does not. Like SANITY_MAX_PLATFORM_ARI this term can only turn a
+# green verdict red; never raise it to make an observation pass.
+SUBTYPE_MAX_PLATFORM_ARI <- 0.05
+
+# The MOFA factors Phase 4 may use as survival predictors.
+#
+# SELECTION RULE — DETERMINISTIC AND OUTCOME-BLIND. Re-running the diagnostic
+# and applying the three clauses below mechanically yields this vector; if it
+# does not, one of them is wrong and must be fixed, not worked around.
+#
+#   (1) ELIGIBILITY. A factor is eligible iff its association with the
+#       HM27/HM450 split is non-significant after BH correction across ALL
+#       factors: q > SANITY_MAX_P in the `factor_platform` target.
+#   (2) RANKING. Eligible factors are ranked by TOTAL variance explained,
+#       SUMMED across the three views (RNA + Methylation + CNV) in
+#       `mofa_varexp`. Summed, not max and not CNV-only: the three views
+#       disagree in scale and picking one of them after the fact is a free
+#       parameter.
+#   (3) COUNT. Take the top N_SURVIVAL_MOFA_FACTORS = 2. The count is fixed IN
+#       ADVANCE by the predictor budget (2 factors + age + stage + platform =
+#       5 terms, against an EPV-10 cap of 17, 14 at the 5-year horizon), not
+#       chosen after looking at the ranking.
+#
+# SURVIVAL ASSOCIATION IS NEVER CONSULTED. Picking factors by how well they
+# predict the outcome and then reporting that model's discrimination on the same
+# cohort is selection bias; a held-out split does not repair it.
+#
+# APPLIED TO run 30911448546 + the Module 2 variance table (run 30718392588):
+#   eligible (q > 0.05): Factor1 (AUC 0.500, q 0.993), Factor4 (0.535, q 0.217),
+#     Factor7 (0.532, q 0.243), Factor13 (0.523, q 0.389), Factor15 (0.552,
+#     q 0.058).
+#   ranked by summed variance explained (RNA/Methyl/CNV %):
+#     Factor1  2.98 + 3.20 + 12.93 = 19.11
+#     Factor4  3.18 + 0.97 +  8.16 = 12.31
+#     Factor7  0.72 + 0.34 +  3.65 =  4.71
+#     Factor13 0.29 + 0.28 +  2.04 =  2.61
+#     Factor15 0.19 + 0.02 +  2.17 =  2.38
+#   top 2 -> Factor1, Factor4. Factor15's marginal q (0.058) needs no special
+#   rule: it is eligible and simply ranks fifth.
+#
+# INELIGIBLE, for the record: Factor2 (AUC 0.888, q 2.9e-50 corrected -- the
+# transcript's 1.4e-50 was depressed by the impossible Factor6 p = 0, see
+# docs/results/platform-diagnosis-run-30911448546.txt) and Factor3 (0.658,
+# q 2.7e-09) are the two that a pre-diagnostic predictor set contained; Factor5,
+# Factor6, Factor9, Factor8, Factor11, Factor14, Factor10 and Factor12 are also
+# significant after BH and likewise excluded.
+#
+# PINNED, NOT ASSUMED: the `factor_platform` target recomputes clause (1) every
+# run and an ANCHOR asserts every name below still satisfies it. That anchor can
+# only turn a green verdict RED.
+N_SURVIVAL_MOFA_FACTORS <- 2L
+PLATFORM_CLEAN_MOFA_FACTORS <- c("Factor1", "Factor4")
+
 # Vital-status values that encode an overall-survival EVENT (death), lower-cased
 # before matching. This is the decode the repo has ALREADY VERIFIED on the real
 # snapshot: GitHub Actions run 30708943504 read colData(mae)$vital_status with

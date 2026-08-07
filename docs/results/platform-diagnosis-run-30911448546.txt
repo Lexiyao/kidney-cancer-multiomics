@@ -1,0 +1,92 @@
+### PLATFORM COMPOSITION OF THE 524-CASE COHORT 
+p
+ HM27 HM450 
+  214   310  
+ 
+### EACH MOFA FACTOR vs PLATFORM (rank-biserial AUC, Wilcoxon p) 
+     factor   auc  p_value  q_value
+2   Factor2 0.888 1.91e-51 1.43e-50
+5   Factor5 0.818 2.68e-35 1.34e-34
+6   Factor6 0.735 0.00e+00 0.00e+00
+3   Factor3 0.658 7.30e-10 2.74e-09
+9   Factor9 0.639 6.43e-08 1.93e-07
+8   Factor8 0.633 2.15e-07 5.38e-07
+11 Factor11 0.603 6.07e-05 1.30e-04
+14 Factor14 0.578 2.48e-03 4.65e-03
+10 Factor10 0.577 2.81e-03 4.68e-03
+12 Factor12 0.561 1.79e-02 2.68e-02
+15 Factor15 0.552 4.26e-02 5.81e-02
+4   Factor4 0.535 1.74e-01 2.17e-01
+7   Factor7 0.532 2.11e-01 2.43e-01
+13 Factor13 0.523 3.63e-01 3.89e-01
+1   Factor1 0.500 9.93e-01 9.93e-01 
+ 
+### MOFA SUBTYPES vs PLATFORM 
+    p
+     HM27 HM450
+  S1   11     9
+  S2  120   186
+  S3   33    43
+  S4   50    72 
+adjusted Rand index (subtypes vs platform): 0.0058 
+ 
+### METHYLATION STRUCTURE WITHIN A SINGLE PLATFORM 
+HM27   n=214  CpGs=4658  4-means silhouette = 0.0858 | sizes: 53/50/14/97 
+HM450  n=310  CpGs=4905  4-means silhouette = 0.0489 | sizes: 76/77/146/11 
+ 
+Reference: the MERGED 4-means silhouette was 0.1197 with 
+platform_ari 0.583 (run 30840373033). A within-platform 
+silhouette at or above that means the structure is real and the 
+MERGE is what needs fixing; a collapse means the strata claim 
+does not hold on this snapshot. 
+
+########################################################################
+### POST-HOC ANNOTATION (2026-08-05) -- NOT PART OF THE RUN OUTPUT
+### The transcript above is left byte-for-byte as run 30911448546 emitted
+### it. This block records a defect found in it afterwards.
+########################################################################
+
+DEFECT: the Factor6 row is arithmetically impossible as printed.
+  recorded: Factor6  auc 0.735  p_value 0.00e+00  q_value 0.00e+00
+
+With n = 214 vs 310, stats::wilcox.test uses the normal approximation
+(exact = FALSE above n = 50) and its p-value has a positive FLOOR.
+MEASURED empirically at these group sizes: perfect separation (AUC 1.000)
+gives p = 1.98e-84. A p-value of exactly 0 is therefore unreachable at ANY
+AUC, and AUC 0.735 implies p on the order of 1e-19 to 1e-20 -- the row is
+inconsistent with itself by ~20 orders of magnitude, and with every other
+row (AUC 0.818 -> 2.68e-35, AUC 0.658 -> 7.30e-10).
+
+The AUC and the p-value are both derived from the SAME W statistic, so a
+single valid wilcox.test call cannot produce both. The likeliest mechanism
+is a degenerate variance in the normal approximation: heavy ties in
+fac[, "Factor6"] collapse SIGMA toward 0, sending z to -Inf and pnorm(z)
+to exactly 0. If that is what happened the AUC for that row is also
+meaningless. Determining which value is corrupted requires reproducing the
+comparison from the store (see .github/workflows/diagnose-platform.yml
+lines 96-107) and is NOT yet done.
+
+CONSEQUENCE FOR THE OTHER ROWS. p.adjust("BH") ranks Factor6 first on
+p = 0, which shifts every larger p one rank down. The q values printed
+above for Factor2 and Factor5 are therefore too small by exactly a factor
+of 2 and 5/3 respectively:
+
+  quantity   as printed   corrected (Factor6 demoted below Factor5)
+  Factor2 q  1.43e-50     2.87e-50
+  Factor5 q  1.34e-34     2.01e-34
+
+Nothing else changes: Factor3 and every row below it keep their printed q
+(Factor6 still ranks third, above Factor3, for any plausible value), and
+the PLATFORM-CLEAN SET at q > 0.05 -- Factor1, Factor4, Factor7, Factor13
+and marginally Factor15 -- is IDENTICAL under both. No decision in this
+repo depends on the bad value; the published numbers were simply wrong.
+
+The correction is arithmetically certain because AUC 0.735 < 0.818 implies
+p(Factor6) > p(Factor5) at equal group sizes, so Factor6 cannot rank above
+Factor5 whatever its true p-value is.
+
+STATUS: docs, plan, spec and R/functions_clinical.R no longer quote
+"q ~0" for Factor6 and now quote the corrected Factor2/Factor5 q values.
+The `factor_platform` target (added 2026-08-05) recomputes this table
+inside the DAG and flags any factor whose p-value is exactly 0 as
+degenerate, so the same defect cannot go unnoticed again.

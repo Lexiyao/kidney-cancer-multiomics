@@ -1,0 +1,73 @@
+########## LEVEL 3: ANCHORS ON REAL DATA ##########
+Actual comparison: 0.068 >= 0.050
+Difference: 0.018 >= 0
+── 2. Failure ('test-sanity.R:1073:3'): ANCHOR: the BAP1 survival anchor was fit
+Expected `bs$ci_low` > 1.
+Actual comparison: 0.967 <= 1.000
+Difference: -0.033 <= 0
+── 3. Failure ('test-sanity.R:1083:3'): ANCHOR: methylation recovers four strata
+Expected `ms$pass` to be TRUE.
+Differences:
+`actual`:   FALSE
+`expected`: TRUE 
+── 4. Failure ('test-sanity.R:1126:3'): ANCHOR: the m1-m4 strata are biology, no
+Expected `ms$platform_ari` < `SANITY_MAX_PLATFORM_ARI`.
+Actual comparison: 0.58 >= 0.25
+Difference: 0.33 >= 0
+══ DONE ════════════════════════════════════════════════════════════════════════
+### MODULE 3 ANCHORS
+anchors : 11 
+passed  : 57 
+failed  : 4 
+skipped : 0 
+### SANITY VERDICTS ON REAL DATA
+mutation_freq   pass = TRUE | ccRCC driver mutation frequencies within published ranges
+bap1_survival   pass = TRUE | BAP1-mutant tumours show worse overall survival (HR > 1)
+methyl_strata   pass = FALSE | TCGA KIRC methylation resolves into m1-m4 strata
+ccab_signature  pass = TRUE | ccA/ccB expression signatures separate into two groups
+### mutation frequencies vs published ranges
+   gene   observed  low high pass
+1   VHL 0.44844125 0.40 0.60 TRUE
+2 PBRM1 0.30455635 0.28 0.45 TRUE
+3 SETD2 0.10071942 0.08 0.18 TRUE
+4  BAP1 0.08633094 0.06 0.18 TRUE
+### BAP1 survival
+$hr
+[1] 1.583991
+$ci_low
+[1] 0.9670121
+$ci_high
+[1] 2.594619
+$p_value
+[1] 0.06773904
+$n
+[1] 417
+### methylation strata
+$n_strata
+[1] 4
+$n_cpg_used
+[1] 4568
+$silhouette
+[1] 0.1197132
+$kw_p_value
+[1] 1.273639e-82
+$platform_ari
+[1] 0.5826973
+$platform_p
+[1] 3.001082e-113
+### ccA/ccB signature
+$silhouette
+[1] 0.5818789
+$separation_p_value
+[1] 3.577086e-37
+$anticorr_rho
+[1] -0.3539966
+$anticorr_p_value
+[1] 6.482881e-17
+$n_ccb_used
+[1] 6
+$n_cca_used
+[1] 6
+##[error]Process completed with exit code 1.
+--- also CI on main ---
+completed | success

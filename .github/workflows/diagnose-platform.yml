@@ -1,0 +1,160 @@
+name: diagnose-platform
+
+# Quantify the HM27/HM450 platform confound found by the Module 3 anchors.
+#
+# Run 30840373033 failed the m1-m4 anchor with platform_ari = 0.583 (threshold
+# 0.25): the "methylation strata" track the assay platform, not biology. That
+# matters far beyond Module 3, because `methyl_mat` is one of the three MOFA
+# views — so MOFA factors, the subtypes derived from them, and any Module 4
+# survival model built on those factors may all be partly modelling batch.
+#
+# This job answers three questions with numbers before anything is changed:
+#   1. How strongly does EACH MOFA factor track platform?
+#   2. Do the MOFA subtypes track platform?
+#   3. Does methylation structure survive WITHIN a single platform (HM450, the
+#      larger arm)? If it does, the signal is real and merging is the problem;
+#      if it does not, the strata claim itself does not hold on this snapshot.
+#
+# Manual dispatch, or push the dedicated `run-diagnose` branch.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [run-diagnose]
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    container:
+      image: bioconductor/bioconductor_docker:RELEASE_3_23
+    defaults:
+      run:
+        shell: bash
+    env:
+      HEAVY_PULL: "true"
+      RETICULATE_PYTHON: /usr/bin/python3
+      BASILISK_EXTERNAL_DIR: /opt/basilisk
+      BASILISK_USE_SYSTEM_DIR: "1"
+      RENV_CONFIG_AUTOLOADER_ENABLED: "false"
+      R_PROFILE_USER: /dev/null
+      EXPERIMENT_HUB_CACHE: /__w/experimenthub
+      ANNOTATION_HUB_CACHE: /__w/annotationhub
+
+    steps:
+      - name: Mark workspace safe for git
+        run: git config --global --add safe.directory '*'
+
+      - uses: actions/checkout@v4
+
+      - name: Install mofapy2 into the reticulate Python
+        run: |
+          set -euxo pipefail
+          apt-get update && apt-get install -y --no-install-recommends python3-dev
+          pip3 install --no-cache-dir --break-system-packages --ignore-installed \
+            mofapy2==0.7.2 numpy==1.26.4 pandas==2.2.2 h5py==3.11.0 scipy==1.13.1
+          mkdir -p /opt/basilisk
+
+      - name: Install R dependencies
+        run: |
+          set -euxo pipefail
+          R -q -e '
+            pkgs <- c("targets", "tarchetypes", "MultiAssayExperiment",
+                      "SummarizedExperiment", "RaggedExperiment",
+                      "curatedTCGAData", "MOFA2", "SNFtool", "mclust", "cluster",
+                      "minfi", "IlluminaHumanMethylation450kanno.ilmn12.hg19",
+                      "reticulate", "testthat", "yaml")
+            BiocManager::install(pkgs, update = FALSE, ask = FALSE, Ncpus = 4)
+            missing <- pkgs[!vapply(pkgs, requireNamespace, logical(1), quietly = TRUE)]
+            if (length(missing)) stop("failed to install: ", paste(missing, collapse = ", "))
+          '
+
+      - name: Build the pipeline
+        run: R -q -e 'targets::tar_make()'
+
+      - name: Quantify the platform confound
+        run: |
+          R -q -e '
+            source("R/constants.R")
+            invisible(lapply(list.files("R", pattern = "^functions_.*[.]R$",
+                                        full.names = TRUE), source))
+            dir.create("artifacts", showWarnings = FALSE)
+            out <- file("artifacts/platform_diagnosis.txt", open = "wt")
+            emit <- function(...) { cat(..., "\n"); cat(..., "\n", file = out) }
+
+            plat <- targets::tar_read(methyl_platform)
+            fac  <- targets::tar_read(mofa_factors)
+            sub  <- targets::tar_read(subtypes_mofa)
+            ids  <- rownames(fac)
+            p    <- factor(plat[ids])
+
+            emit("### PLATFORM COMPOSITION OF THE 524-CASE COHORT")
+            emit(paste(capture.output(print(table(p, useNA = "ifany"))), collapse = "\n"))
+
+            # 1. Each factor vs platform. AUC is the readable effect size:
+            #    0.5 = factor carries no platform information, 1.0 = perfectly
+            #    separates the two assays.
+            emit("")
+            emit("### EACH MOFA FACTOR vs PLATFORM (rank-biserial AUC, Wilcoxon p)")
+            lev <- levels(p)
+            res <- do.call(rbind, lapply(colnames(fac), function(f) {
+              x <- fac[, f]
+              a <- x[p == lev[1]]; b <- x[p == lev[2]]
+              w <- suppressWarnings(stats::wilcox.test(a, b))
+              auc <- as.numeric(w$statistic) / (length(a) * length(b))
+              data.frame(factor = f, auc = round(max(auc, 1 - auc), 3),
+                         p_value = signif(w$p.value, 3))
+            }))
+            res$q_value <- signif(stats::p.adjust(res$p_value, "BH"), 3)
+            print(res[order(-res$auc), ])
+            cat(paste(capture.output(print(res[order(-res$auc), ])), collapse = "\n"),
+                "\n", file = out)
+
+            # 2. Subtypes vs platform.
+            emit("")
+            emit("### MOFA SUBTYPES vs PLATFORM")
+            emit(paste(capture.output(print(table(sub[ids], p))), collapse = "\n"))
+            emit("adjusted Rand index (subtypes vs platform):",
+                 round(fn_adjusted_rand_index(table(as.character(sub[ids]),
+                                                    as.character(p))), 4))
+
+            # 3. Does methylation structure survive WITHIN one platform? If the
+            #    strata are biological they should reappear in the HM450 arm
+            #    alone; if they were the merge artefact, they should collapse.
+            emit("")
+            emit("### METHYLATION STRUCTURE WITHIN A SINGLE PLATFORM")
+            mm <- targets::tar_read(methyl_mat)
+            for (lv in lev) {
+              keep <- colnames(mm)[p[match(colnames(mm), ids)] == lv]
+              keep <- keep[!is.na(keep)]
+              sub_mat <- mm[, keep, drop = FALSE]
+              ok <- apply(is.finite(sub_mat), 1L, all)
+              sub_mat <- sub_mat[ok, , drop = FALSE]
+              if (ncol(sub_mat) < 20L || nrow(sub_mat) < 100L) {
+                emit(sprintf("%-6s n=%d -- too small to cluster", lv, ncol(sub_mat)))
+                next
+              }
+              set.seed(SANITY_SEED)
+              km <- stats::kmeans(t(sub_mat), centers = 4L, nstart = 25L)
+              d  <- stats::dist(t(sub_mat))
+              sil <- mean(cluster::silhouette(km$cluster, d)[, 3L])
+              emit(sprintf("%-6s n=%-4d CpGs=%-5d 4-means silhouette = %.4f | sizes: %s",
+                           lv, ncol(sub_mat), nrow(sub_mat), sil,
+                           paste(table(km$cluster), collapse = "/")))
+            }
+            emit("")
+            emit("Reference: the MERGED 4-means silhouette was 0.1197 with")
+            emit("platform_ari 0.583 (run 30840373033). A within-platform")
+            emit("silhouette at or above that means the structure is real and the")
+            emit("MERGE is what needs fixing; a collapse means the strata claim")
+            emit("does not hold on this snapshot.")
+            close(out)
+          '
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: platform-diagnosis
+          path: artifacts/
+          if-no-files-found: warn

@@ -149,6 +149,23 @@ list(
     p
   }),
 
+  # How many cohort cases were assayed on BOTH platforms. This is the SOLE
+  # stated justification for refusing a batch correction ("only 3 cases overlap,
+  # so ComBat could not be validated"), and until this target existed it was
+  # recorded nowhere and computed nowhere — asserted in six places, derivable
+  # from none of them. It CANNOT be corroborated by the 214/310 split either:
+  # methyl_platform's own rule labels every dual-assayed case HM27, so the split
+  # is identical for any overlap count.
+  #
+  # Cheap (two colnames vectors and an intersect), so it costs nothing to make
+  # the claim executable. Restricted to `common_ids` because that is the cohort
+  # the refusal is about.
+  tar_target(methyl_platform_overlap, {
+    both <- intersect(fn_harmonise_ids(colnames(meth27_raw)),
+                      fn_harmonise_ids(colnames(meth450_raw)))
+    length(intersect(both, common_ids))
+  }),
+
   tar_target(cnv_mat, fn_align_samples(fn_prep_cnv(cnv_raw), common_ids)),
 
   tar_target(mut_annot, fn_extract_mutation_status(mae_qc, DRIVER_GENES)),
@@ -181,6 +198,29 @@ list(
   # main cohort. fn_check_bap1_survival inner-joins it to mut_annot (417), so
   # the BAP1 anchor is evaluated on the mutation subset by construction. Module
   # 4 must restrict to `common_ids` itself before fitting the survival model.
+  #
+  # PLATFORM COVARIATE (fn_attach_platform, R/functions_clinical.R). The frame
+  # gains a FOURTH column, `platform`, a factor over METHYL_PLATFORMS carrying
+  # the HM27/HM450 assay of each case; sample_id / os_time / os_event are
+  # untouched in name, order and value, so Module 4's survival_df contract and
+  # fn_check_bap1_survival (which selects those three columns explicitly) are
+  # unaffected. It is here rather than in a parallel frame so that exactly one
+  # clinical table exists in the DAG and the covariate cannot drift away from
+  # the outcome it is fitted beside.
+  #
+  # It is a COVARIATE, not a correction: too few cases are assayed on both
+  # platforms (the figure "3" has been stated but is NOT in any committed
+  # transcript — the methyl_platform_overlap target above now computes it, and
+  # the next container run records it) and the probe sets differ, so ComBat
+  # could not be validated on this snapshot; the uncorrected batch stays in the
+  # data and Phase 4 adjusts for it instead
+  # (measured platform structure: run 30911448546, see fn_attach_platform).
+  # NOTHING downstream of this changes a threshold — the m1-m4 anchor is still
+  # red at platform_ari 0.583 against the unchanged 0.25 ceiling.
+  #
+  # `platform` is NA outside the 524-case main cohort, because methyl_platform
+  # is only defined there and inventing an assay for a case with no methylation
+  # would be a fabrication; see fn_attach_platform for the full argument.
   tar_target(
     clinical,
     {
@@ -199,11 +239,14 @@ list(
       os_time  <- ifelse(os_event == 1L, days_to_death, days_to_followup)
       sample_id <- fn_harmonise_ids(rownames(cd))
       stopifnot(!anyDuplicated(sample_id))
-      data.frame(
-        sample_id = sample_id,
-        os_time   = os_time,
-        os_event  = os_event,
-        stringsAsFactors = FALSE
+      fn_attach_platform(
+        data.frame(
+          sample_id = sample_id,
+          os_time   = os_time,
+          os_event  = os_event,
+          stringsAsFactors = FALSE
+        ),
+        methyl_platform
       )
     }
   ),
@@ -234,12 +277,25 @@ list(
     fn_run_snf(list(RNA = rna_mat, Methylation = methyl_mat, CNV = cnv_mat)),
     packages = c(tar_option_get("packages"), "SNFtool")
   ),
+  # Per-factor platform association, in the DAG rather than in a manually
+  # triggered workflow. This is the BASIS on which Phase 4 selects its
+  # predictors (PLATFORM_CLEAN_MOFA_FACTORS, R/constants.R), and until this
+  # target existed that basis was hard-coded numbers in comments citing run
+  # 30911448546 — nothing executable could tell you whether Factor1 and Factor4
+  # are STILL clean after a MOFA seed / version / upstream-matrix change, and
+  # re-adding Factor2 to the predictor vector would have broken no check.
+  # Contrast subtypes_mofa, whose platform-cleanliness has been falsifiable at
+  # run time since fn_check_subtype_platform.
+  tar_target(factor_platform,
+             fn_factor_platform_association(mofa_factors, methyl_platform)),
+
   tar_target(concordance, fn_cluster_concordance(subtypes_mofa, snf_clusters)),
   tar_target(mutation_factor_annot, fn_annotate_mutation(mofa_factors, mut_annot)),
 
   # --- Module 3: sanity-check positive controls (credibility anchor) --------
-  # Four literature-anchored ccRCC checks, each returning a structured pass/fail
-  # object (spec section 7). Computed ONCE on the frozen real data and cached;
+  # Literature-anchored ccRCC checks, each returning a structured pass/fail
+  # object (spec section 7), plus one platform-cleanliness guard on the subtype
+  # assignment. Computed ONCE on the frozen real data and cached;
   # tests/testthat/test-sanity.R reads this target and asserts it against the
   # published literature. Light on packages: every fn_check_* works on plain
   # matrices/data.frames, so no per-target `packages` entry is needed.
@@ -254,7 +310,16 @@ list(
                                               platform = methyl_platform),
       # rna_full, NOT rna_mat: the published ccA/ccB panels must not pass
       # through the top-5000-variable filter (see the rna_full target above).
-      ccab_signature = fn_check_ccab_signature(rna_full)
+      ccab_signature = fn_check_ccab_signature(rna_full),
+      # The counterpart to methyl_strata, and the one platform result that came
+      # back CLEAN (run 30911448546: ARI 0.0058). Individual MOFA factors carry
+      # heavy platform information (Factor2 separates HM27 from HM450 at
+      # AUC 0.888), so a subtype assignment independent of the assay is a real,
+      # falsifiable property rather than a foregone conclusion — pinned here so
+      # a future change to fn_assign_subtypes or to the factor set cannot break
+      # it silently.
+      subtype_platform = fn_check_subtype_platform(subtypes_mofa,
+                                                   methyl_platform)
     )
   )
 )
