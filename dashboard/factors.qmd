@@ -48,13 +48,16 @@ read as a biological axis.
 
 **The same merge fails a literature positive control, and this is the page the
 rest of the site sends you to for the confound — so it says so here rather than
-only on the [Dashboard](dashboard.qmd).** The m1–m4 methylation-strata anchor is
-[RED]{.verdict-red} on this snapshot: the merged 4-means partition tracks the
-assay at ARI **0.583** against a 0.25 veto, and the within-platform silhouettes
-(HM27 0.0858, HM450 0.0489) are *both below* the merged 0.1197, so the merge
-manufactures the structure rather than diluting it. It is pinned as an expected
-red — a *new* red fails the job, and an m1–m4 anchor that starts passing fails it
-too. See the [Dashboard](dashboard.qmd) red-light card.
+only on the [Dashboard](dashboard.qmd).** The merged-methylation 4-cluster
+anchor is [RED]{.verdict-red} on this snapshot: the merged 4-means partition
+tracks the assay at ARI **0.583** against a 0.25 veto, and the within-platform
+silhouettes (HM27 0.0858, HM450 0.0489) are *both below* the merged 0.1197, so
+the merge manufactures the structure rather than diluting it. It is pinned as an
+expected red — a *new* red fails the job, and this anchor starting to pass fails
+it too. `k = 4` is a design choice taken from the m1–m4 mRNA **expression**
+subtypes (TCGA Nature 2013), which reports no four DNA-methylation strata, so
+this red is a finding about the assay merge and not a failed replication. See
+the [Dashboard](dashboard.qmd) red-light card.
 
 Only [Factor1 and Factor4]{.verdict-green} are wired as survival predictors, and
 they were chosen **outcome-blind** — on platform-cleanliness and variance
@@ -91,6 +94,20 @@ if (!has_store) {
   )
 }
 ```
+
+**One caveat on the `BH q` column, because two public places print it
+differently.** The table above renders the q values exactly as the DAG computes
+them. `Factor6`'s Wilcoxon *p* underflowed to exactly 0 — impossible at
+n = 214/310, where the normal approximation floors around 1.98e-84 — and because
+BH ranks on *p*, that bad value shifts every larger *p* one rank down and
+depresses the q of the factors below it by at most 2×. So `Factor2` prints
+**1.4e-50** here against a corrected **2.9e-50**, and `Factor5` prints
+**1.3e-34** against **2.0e-34**; the design spec and `R/constants.R` quote the
+corrected pair. Nothing downstream changes: the platform-clean set at
+`q > 0.05` is identical either way, which is why both numbers are allowed to
+stand rather than one being quietly dropped. The arithmetic is worked out in
+the post-hoc annotation of
+`docs/results/platform-diagnosis-run-30911448546.txt`.
 
 ## Variance explained per omics view, per factor
 
@@ -175,8 +192,9 @@ if (is.null(mfa)) {
 }
 ```
 
-Driver-mutation status (n = 417 subset) was tested against every factor as an
-**external label**. Exactly **one** association survives BH correction:
+Driver-mutation status was tested against every factor as an **external label**
+on the **n = 413** cases where the 417-case mutation subset meets the 524-case
+main cohort (`fn_annotate_mutation()` intersects the two before testing). Exactly **one** association survives BH correction:
 **BAP1 ↔ Factor14, q = 0.004**. Both halves of that sentence matter:
 
 - it is a real, corrected association, and it is the only one; **and**

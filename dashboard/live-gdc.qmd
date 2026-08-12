@@ -36,15 +36,20 @@ The multi-omics research core is a **frozen 2016 `curatedTCGAData` snapshot**.
 Re-running it weekly would reproduce it byte-for-byte, so claiming the *project*
 is a regularly updated tool would be false. What is genuinely scheduled is this
 panel: the `gdc_live_panel` target re-queries the GDC API on every pipeline run,
-and the weekly cron (`.github/workflows/cron.yml`) re-runs that target and
-re-freezes the cached store.
+and the weekly cron (`.github/workflows/cron.yml`) is **wired** to re-run that
+target and re-freeze the cached store. "Wired", not "does" — that cron has not
+yet executed in its current form, and it restores a `targets-store` release
+asset that does not exist yet, so it is a built mechanism rather than observed
+behaviour.
 
 **Honest scope of the "weekly" claim.** The cron refreshes the panel and the
 cached store; publishing the rendered site is currently a **manual** action
 (`.github/workflows/pages.yml` is `workflow_dispatch` only). So the number below
-is current as of the render timestamp it carries — not as of the moment you read
-it — and it will advance on the schedule the site is deployed on. The timestamp
-is printed with every figure for exactly that reason.
+is current as of the **retrieval** timestamp it carries — the moment the
+pipeline last queried the GDC, which can be weeks before this page was rendered,
+and is certainly not the moment you are reading it. A deploy restores a cached
+store and rebuilds nothing, so the render can be far newer than the retrieval.
+The timestamp is printed with every figure for exactly that reason.
 
 ```{r}
 #| label: total
@@ -68,7 +73,7 @@ if (is.null(panel)) {
 ```
 
 ::: {.dashboard-note}
-**Do not read the count above as the analysis cohort.** It is every TCGA-KIRC
+**The live GDC case total is not the analysis cohort.** It is every TCGA-KIRC
 case the GDC currently indexes, on any assay or none. The analysis cohort is
 `r COHORT_SIZES$rna_methyl_cnv` cases — those with RNA **and** methylation
 (HM27 ∪ HM450) **and** CNV in the frozen 20160128 snapshot — falling to

@@ -7,12 +7,17 @@ survival + a non-circular BAP1-from-expression classifier → an interactive
 Quarto/Plotly dashboard, orchestrated by `targets` and pinned by `renv` +
 Docker.
 
-**Dashboard status: built, not published.** The five-page site renders from the
-cached `_targets` store, but `.github/workflows/pages.yml` is
-`workflow_dispatch`-only on purpose, so nothing is deployed at
-`lexiyao.github.io/kidney-cancer-multiomics` yet. Whether to publish is a
-pending decision; enabling it is two lines in that workflow. Render it locally
-with `quarto render dashboard`.
+**Dashboard status: built, not published, and the store it needs does not exist
+yet.** The five-page site renders from a cached `_targets` store, and
+`.github/workflows/pages.yml` is `workflow_dispatch`-only on purpose, so nothing
+is deployed at `lexiyao.github.io/kidney-cancer-multiomics`. Publishing is
+**not** a two-line change: `pages.yml` begins by running `gh release download
+targets-store`, and this repository currently has **zero releases**, so a
+dispatch would fail at its first step. The prerequisite chain is: run the full
+pipeline (Docker path below) → `Rscript scripts/freeze_release_assets.R` →
+upload the `targets-store` asset → then dispatch `pages.yml`. Until that is
+done, render locally with `quarto render dashboard`, which produces the site
+with a stated gap in place of every store-backed figure.
 
 ## Why this repo exists — skills → module map
 
@@ -22,20 +27,23 @@ behind them say so rather than being quietly dropped.
 | Skill | Where it lives | Status — and the evidence |
 |---|---|---|
 | Somatic multi-omics integration | `R/functions_integrate.R` (MOFA2 + SNF) | **Run on real data** — 15 factors on n=524, four subtypes, MOFA-vs-SNF ARI 0.351 (run `30718392588`) |
-| Transcriptomic / epigenomic / CNV curation | `R/functions_ingest.R`, `R/functions_preprocess.R` | **Run on real data** — `rna_mat` 5000×524, `methyl_mat` 5000×524, `cnv_mat` 24776×524, `mut_annot` 417×7 (run `30708943504`) |
-| Reproducible pipeline + version control + env manager | `_targets.R`, `renv.lock` (218 pkgs), `Dockerfile`, GitHub Actions | **Run** — every result below was produced in `bioconductor/bioconductor_docker:RELEASE_3_23` from the lockfile |
-| R + Python in one pipeline | MOFA2 via `reticulate`/`basilisk`; `python/bap1_classifier.py` | **Run on real data** — MOFA2 trains against system Python, no conda pulled (run `30570220145`) |
+| Transcriptomic / epigenomic / CNV curation | `R/functions_ingest.R`, `R/functions_preprocess.R` | **Run on real data** — `rna_mat` 5000×524, `methyl_mat` 5000×524, `cnv_mat` 24776×524, `mut_annot` 417×7 (run `30708943504`, transcript not committed) |
+| Reproducible pipeline + version control + env manager | `_targets.R`, `renv.lock` (218 pkgs), `Dockerfile`, GitHub Actions | **Run** — every result below was produced inside `bioconductor/bioconductor_docker:RELEASE_3_23`, with the research packages installed by `BiocManager`; see "What the lockfile does and does not pin" below |
+| R + Python in one pipeline | MOFA2 via `reticulate`/`basilisk`; `python/bap1_classifier.py` | **Run on real data** — MOFA2 trains against system Python, no conda pulled (run `30570220145`, transcript not committed) |
 | ML + survival analysis | `R/functions_survival.R`, `R/functions_model_eval.R` (C-index + calibration from scratch) | **Fitted on real data** (run `31375702141`) — read the caveat under "Module 4" before quoting the C-index |
-| Literature positive controls as tests | `R/functions_sanity.R`, `tests/testthat/test-sanity.R` | **Run on real data** — 24 anchor tests (201 expectations green, 2 red), 4 of 5 checks pass, m1–m4 pinned as an expected red |
+| Literature positive controls as tests | `R/functions_sanity.R`, `tests/testthat/test-sanity.R` | **Run on real data** — 24 anchor tests (201 expectations green, 2 red), 4 of 5 checks pass, the 4-cluster methylation check pinned as an expected red |
 | Data viz (Plotly) + communicating to a non-technical reader | `dashboard/*.qmd` | **Built and rendering** — 5 pages, each degrading to a stated gap without the store |
-| Public data → regularly updated tool | `R/functions_gdc_live.R`, `.github/workflows/cron.yml` | **Built, scoped honestly** — the weekly cron refreshes the live GDC panel only; the *published* page advances only when Pages is dispatched |
+| Public data → regularly updated tool | `R/functions_gdc_live.R`, `.github/workflows/cron.yml` | **BUILT, NOT YET RUN.** The weekly cron is wired to refresh the live GDC panel only, but no execution of it exists yet (the two scheduled runs on record are the earlier placeholder job), and it needs the `targets-store` release first |
 | Single-cell | — | **NOT BUILT.** Module 6 (GSE159115 + ESTIMATE purity gate) is v1.1 and non-blocking; no code exists yet |
 | Publication-quality static figures | — | **NOT BUILT.** Figures here are interactive HTML; there is no manuscript-figure export path |
 
 ## One-command run
 
-The full pipeline is run **once**, then the `_targets/` store is frozen as a
-GitHub release asset that CI/Pages restore:
+The full pipeline is **intended** to be run once, with the `_targets/` store
+then frozen as a GitHub release asset that Pages and the cron restore. **That
+asset has not been produced yet** — `gh release list` on this repository is
+empty — so the two commands below are the path to creating it, not a record of
+it having been created:
 
 ```bash
 docker build -t kidney-cancer-multiomics .
@@ -77,8 +85,8 @@ can.
 
 Verified by real runs against the frozen snapshot inside
 `bioconductor/bioconductor_docker:RELEASE_3_23`. **One of the five Module 3
-literature checks came back RED — the m1–m4 methylation strata — and it stays
-red** (it carries the suite's only 2 red expectations, out of 203, in 2 anchor
+literature checks came back RED — the merged-methylation 4-cluster check — and
+it stays red** (it carries the suite's only 2 red expectations, out of 203, in 2 anchor
 tests; both are that one finding). A status section reporting only the green
 ones would misrepresent what this pipeline found.
 
@@ -104,16 +112,26 @@ ones would misrepresent what this pipeline found.
   views; subtypes imbalanced (S1=20, S2=306, S3=76, S4=122); MOFA-vs-SNF
   concordance ARI **0.351** — moderate, not high. Raw output at
   `docs/results/module2-run-30718392588.txt`.
-- **Module 3 credibility anchors** (run `30840373033`, re-emitted unchanged by
-  `31375702141`), four green, one red:
+- **Module 3 credibility anchors** (run `31375702141` — the run that printed
+  all five verdicts), four green, one red. The earlier run `30840373033`
+  recorded only **four** checks (`mutation_freq`, `bap1_survival`,
+  `methyl_strata`, `ccab_signature`) at **11 anchors / 57 passed / 4 failed**,
+  and ended `conclusion: failure`; `subtype_platform` did not exist yet
+  (`fn_check_subtype_platform` was added in response to run `30911448546`, which
+  is later). Every measured value the two runs share is byte-identical; what
+  changed between them is the **test definition**, not the data — the BAP1
+  anchor's `p < 0.05` and `ci_low > 1` assertions were retired as
+  mis-specified (`R/constants.R`), so its verdict moved from red to green while
+  HR, CI and p stayed exactly the same. Run `31375702141` records 24 anchors /
+  201 passed / 2 failed.
 
   | check | verdict | measured |
   |---|---|---|
   | `mutation_freq` | **PASS** | VHL 44.8%, PBRM1 30.5%, SETD2 10.1%, BAP1 8.6% — all inside published ranges, n=417 |
   | `ccab_signature` | **PASS** | ccA/ccB anti-correlation rho **−0.354**, p 6.5e-17, full 6+6 panels |
-  | `subtype_platform` | **PASS** | MOFA subtypes vs assay platform ARI **0.0058**, p 0.53 |
+  | `subtype_platform` | **PASS** | MOFA subtypes vs assay platform ARI **0.0058** (first measured in run `30911448546`), p 0.53 |
   | `bap1_survival` | **DIRECTIONALLY RIGHT, UNDERPOWERED** | HR **1.584**, 95% CI 0.967–2.595, p 0.068, n=417. A positive control, not a result: the direction matches the literature, the significance is out of this cohort's reach — Schoenfeld needs ~470 events and the subset **records 147, 18 of them in the mutant arm** |
-  | `methyl_strata` | **RED — a real negative result** | silhouette 0.1197, Kruskal p 1.3e-82, but cluster-vs-platform ARI **0.583** against a 0.25 ceiling |
+  | `methyl_strata` (4 clusters in merged HM27+HM450) | **RED — a real negative result** | silhouette 0.1197, Kruskal p 1.3e-82, but cluster-vs-platform ARI **0.583** against a 0.25 ceiling |
 
 - **Platform confound** (run `30911448546`): the cohort is **214 HM27 / 310
   HM450**, merged with no batch correction. The merged methylation partition
@@ -124,8 +142,8 @@ ones would misrepresent what this pipeline found.
   batch correction (only **3** cases are assayed on both platforms and the probe
   sets differ, so ComBat could be neither validated nor trusted); adjust for
   platform as a covariate and take predictors only from the platform-clean
-  factors instead. `SANITY_MAX_PLATFORM_ARI` stays at 0.25 and the m1–m4 anchor
-  stays failing — its job now is to fail *informatively*. Raw output at
+  factors instead. `SANITY_MAX_PLATFORM_ARI` stays at 0.25 and the methylation
+  cluster anchor stays failing — its job now is to fail *informatively*. Raw output at
   `docs/results/platform-diagnosis-run-30911448546.txt`.
 - **What the confound does NOT touch**: the MOFA subtypes are platform-clean
   (ARI **0.0058**), and the mutation-frequency and ccA/ccB anchors read no
@@ -173,16 +191,29 @@ No single-cell or purity claim is made anywhere in this repository.
   fixture store** (asserting every page renders with no gaps left). It does
   **not** restore the `targets-store` release asset, so the figures it renders
   are invented stand-ins and a green badge is not **end-to-end reproduction**.
-- **`pages.yml`** restores the `targets-store` release asset, renders
-  `dashboard/`, and deploys to Pages. **Manual trigger only**; not currently
-  deployed.
-- **`cron.yml`** runs weekly and refreshes **only** the live GDC statistics
-  panel — it asserts that no frozen target rebuilt — then re-freezes the store
-  and, in a separate job, rebuilds the container as the dependency-drift check.
-  It does **not** deploy Pages and the 2016/hg19 research core never updates.
-- **`verify-module2.yml`** is the only workflow that builds research targets on
-  real data (`HEAVY_PULL=true`), by hand. Every measured number here comes from
-  it.
+- **`pages.yml`** *would* restore the `targets-store` release asset, render
+  `dashboard/`, and deploy to Pages. **Manual trigger only, and never yet
+  dispatched**; with no release present it would currently fail on its first
+  step.
+- **`cron.yml`** is **wired but has never run in its current form.** As
+  committed it refreshes **only** the live GDC statistics panel, asserts that no
+  frozen target rebuilt, re-freezes the store, and in a separate job rebuilds
+  the container as the dependency-drift check. It does **not** deploy Pages and
+  the 2016/hg19 research core never updates. The two scheduled executions that
+  exist — runs `30795010494` (2026-08-03) and `31359626479` (2026-08-10) — ran
+  the earlier `drift-check` scaffold, whose only step was a placeholder; the
+  live-panel job landed on `main` afterwards. The next scheduled run will also
+  fail until the `targets-store` release exists, because it restores the store
+  before doing anything else.
+- **Three workflows build research targets on real data** (`HEAVY_PULL=true`),
+  all manual, and between them they produced every measured number here:
+  **`verify-module2.yml`** (Modules 1–4 and the anchor suite — runs
+  `30718392588`, `30840373033`, `31375702141`), **`heavy-pull.yml`** (the
+  cohort and survival census, the Module 1 matrix dimensions and the
+  218-package lock — runs `30642823359`, `30708943504`), and
+  **`diagnose-platform.yml`** (the platform confound: the 214/310 split, every
+  factor AUC, the within-platform silhouettes, `methyl_platform_overlap` — run
+  `30911448546`). Push/PR CI never builds them.
 
 See [docs/runtime.md](docs/runtime.md) for the full workflow table.
 
@@ -196,6 +227,18 @@ See [docs/runtime.md](docs/runtime.md) for the full workflow table.
   determines the data is 2.0.1. It never updates.
 - The full pipeline runs once (see `scripts/run_full_pipeline.R`); measured
   runtime and reference hardware are in [docs/runtime.md](docs/runtime.md).
+- **What the lockfile does and does not pin.** `renv.lock` is a complete
+  218-package lock, but it is not what produced the numbers above, and saying
+  otherwise would overclaim. The three real-data workflows install their
+  research packages with `BiocManager::install()` from an unpinned name list
+  inside the pinned image — same container, not the same resolved versions.
+  `renv.lock` is *generated* by `heavy-pull.yml`, *restored* by the
+  `Dockerfile`'s `renv::restore()`, and *asserted against* by `ci.yml` (which
+  produces no research numbers). So: right image, `BiocManager`-resolved
+  packages, with the lockfile pinning the environment the container builds
+  rather than the environment the figures came out of. Closing that gap means
+  adding a `renv::restore()` and a version assertion to `verify-module2.yml`
+  and re-running.
 
 ## Known limitations (stated openly)
 
@@ -210,10 +253,16 @@ See [docs/runtime.md](docs/runtime.md) for the full workflow table.
   the wired predictors carry no detectable platform signal, which is why they —
   and not the higher-variance factors — are the ones in the model. The choice
   was made **outcome-blind**, on platform cleanliness and variance explained.
-- **The m1–m4 methylation-strata positive control FAILS** and is kept failing,
-  pinned as an expected red in CI: a new red fails the job, and an m1–m4 anchor
-  that starts *passing* also fails the job, because that would mean the recorded
-  negative no longer holds.
+- **The merged-methylation 4-cluster positive control FAILS** and is kept
+  failing, pinned as an expected red in the container run (`verify-module2.yml`,
+  manual dispatch): a new red fails the job, and this anchor starting to *pass*
+  also fails the job, because that would mean the recorded negative no longer
+  holds. **What it is not:** this is not a failure to reproduce published
+  methylation biology. TCGA KIRC (Nature 2013) defines m1–m4 as mRNA
+  **expression** subtypes and reports no four DNA-methylation strata, so `k = 4`
+  here is a design choice carried over from those expression subtypes. The red
+  is a finding about *this* merged HM27/HM450 matrix — it partitions by assay —
+  not a contradiction of the paper.
 - **The survival C-index is carried by stage and age**, not by the multi-omics
   factors (see Module 4 above). Reporting 0.75 without that sentence would be
   the central overclaim this project is designed not to make.

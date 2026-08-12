@@ -43,9 +43,9 @@ enters instead as an explicit adjustment covariate. See
 [MOFA Factors](factors.qmd). Selecting factors on survival association would
 bias the model and is forbidden.
 
-The same assay merge also fails a literature positive control: the m1–m4
-methylation-strata anchor is [RED]{.verdict-red} (cluster-vs-platform ARI 0.583
-against a 0.25 veto) and stays red. See the [Dashboard](dashboard.qmd) red-light
+The same assay merge also fails a positive control: the merged-methylation
+4-cluster anchor is [RED]{.verdict-red} (cluster-vs-platform ARI 0.583 against a
+0.25 veto) and stays red. See the [Dashboard](dashboard.qmd) red-light
 card.
 
 ```{r}

@@ -7,7 +7,8 @@ Authors@R:
 Description: A targets-orchestrated, renv-pinned R+Python pipeline that
     integrates TCGA-KIRC RNA, methylation and CNV with MOFA2 and SNF, runs
     literature positive controls, fits low-dimensional survival and a BAP1
-    classifier, and renders a live-updating Quarto dashboard.
+    classifier, and renders a Quarto dashboard from a frozen snapshot with a
+    single live GDC statistics panel.
 Encoding: UTF-8
 Depends:
     R (>= 4.4)

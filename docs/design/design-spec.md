@@ -6,9 +6,18 @@
   run `30642823359`) — all sample sizes in §2 are now observed, not estimated — and then against a
   **measured survival (OS event) census** on the same snapshot (2026-08-01, GitHub Actions run
   `30708943504`), which also re-verified the cohort census with zero drift and materialised
-  Module 1 end-to-end on the real data. No model has been fitted yet.
+  Module 1 end-to-end on the real data. **UPDATED 2026-08-12: the survival model
+  HAS since been fitted** — run `31375702141` (2026-08-10, `verify-module2.yml`,
+  conclusion success) reports held-out C-index Cox 0.7486 / penalised 0.7492 /
+  RSF 0.7524, Cox optimism 0.0125, a 5-bin calibration table and BAP1-from-
+  expression AUROC 0.958 CV / 0.960 held-out on n=413 with 36 mutants;
+  transcript at `docs/results/module4-run-31375702141.txt`. The superseded
+  sentence read "No model has been fitted yet." and is kept here, struck, rather
+  than overwritten, in line with this spec's own correction policy.
 - **Author:** Zixi (Lexi) Yao — github.com/Lexiyao
-- **Repo:** `kidney-cancer-multiomics` → rendered site at `lexiyao.github.io/kidney-cancer-multiomics`
+- **Repo:** `kidney-cancer-multiomics`. The rendered site *would* deploy to
+  `lexiyao.github.io/kidney-cancer-multiomics`; Pages is `workflow_dispatch`-only
+  and has never been dispatched, so that URL is **not live**.
 
 ## Purpose
 
@@ -54,7 +63,7 @@ numbers merely look confident.
 | ML + survival / epi (both + author strength) | Module 5 |
 | Data viz (Plotly) + communicate to non-technical (Imperial) | Module 6 |
 | Public data → regularly updated tool (Imperial) | Module 6 live-GDC panel + CI cron (§9) |
-| Publication-quality visualisation (Mitchell) | Module 6 |
+| Publication-quality visualisation (Mitchell) | **NOT BUILT** — figures are interactive HTML; no manuscript-figure export path exists (matches README and dashboard/index.qmd) |
 
 ---
 
@@ -122,8 +131,15 @@ number frozen into a document. The design then deliberately stays **well under**
 **5 predictors** (factors/subtypes + a few clinical variables), comfortably inside both 17 and 14,
 and **never** genome-wide feature selection. The measurement *licenses* headroom; it does not
 oblige the design to spend it, and the larger cohort is still not treated as licence to raise the
-predictor budget. What is measured here is the cohort and its events — **the survival model has
-not been fitted**, and no performance figure is asserted.
+predictor budget. What is measured here is the cohort and its events.
+
+> **SUPERSEDED 2026-08-12.** This paragraph originally ended "**the survival model has
+> not been fitted**, and no performance figure is asserted." That was true when written and
+> is false now: `R/functions_survival.R` and `R/functions_model_eval.R` exist, and run
+> `31375702141` fitted the model and printed held-out C-index Cox 0.7486 / penalised 0.7492 /
+> RSF 0.7524 with optimism 0.0125. The predictor budget reasoning above is unchanged and was
+> honoured — the fit measured its own EPV cap on the training events (124 events → cap 12) and
+> spent 5. See §12 and `docs/results/module4-run-31375702141.txt`.
 
 ### 2a. RNA-seq object — do not call it `vst`
 
@@ -140,6 +156,15 @@ versioned ExperimentHub snapshot.)
 ## 3. Architecture — modules (orchestrated by `targets`)
 
 Each module has one purpose and explicit inputs/outputs; each is independently testable.
+
+> **NUMBERING — read before following a cross-reference.** This spec numbers modules **1–7**
+> below. `_targets.R`, `README.md` and `docs/architecture.md` number the same work **0–6**, with a
+> Module 0 scaffold. The reader-facing numbering is the 0–6 one; this section is kept as written
+> so existing cross-references still resolve. The map is:
+> spec Module 3 (integrate) = README Module 2 · spec Module 4 (sanity) = README Module 3 ·
+> spec Module 5 (model) = README Module 4 · spec Module 6 (dashboard) = README Module 5 ·
+> spec Module 7 (singlecell) = README Module 6. So §10, headed "Single-cell confound check
+> (Module 7)", is what README calls **Module 6**.
 
 1. **ingest** (R): `curatedTCGAData` → `MultiAssayExperiment`; harmonise sample IDs; QC;
    cache versioned RDS. → `MultiAssayExperiment`, MultiAssayExperiment 1.38.0.
@@ -239,34 +264,49 @@ figures:
 
 - VHL / PBRM1 / SETD2 / BAP1 mutation frequencies fall within published ccRCC ranges.
 - BAP1-mutant tumours show worse OS.
-- Recovery of TCGA KIRC methylation strata (m1–m4).
+- Recovery of four stable clusters in the merged HM27/HM450 methylation matrix. (`k = 4` is a
+  design choice carried over from TCGA's m1–m4 mRNA **expression** subtypes; the paper reports no
+  four DNA-methylation strata, so this is not a replication target.)
 - ccA / ccB expression-signature separation.
 
-**STATUS: the suite has now RUN ON REAL DATA, and two of the four anchors are red.** GitHub Actions
-run 30840373033 built `sanity_results` on the frozen curatedTCGAData 2.0.1 KIRC snapshot 20160128
-(11 anchors, 57 assertions passed, 4 failed, **0 skipped** — every anchor genuinely executed; those
-are the counts AS OF run 30840373033, not live figures — the suite now carries 19 anchors across
-`test-sanity.R` and `test-clinical.R`);
-transcript at `docs/results/phase3-anchors-run-30840373033.txt`, follow-up platform diagnostic
-(run 30911448546) at `docs/results/platform-diagnosis-run-30911448546.txt`.
+**STATUS AS OF run 31375702141 (2026-08-10), the latest recorded run: the suite has RUN ON REAL
+DATA over FIVE checks — four PASS, one RED.** That run records 24 anchors across three files
+(`test-sanity.R` 14, `test-clinical.R` 6, `test-survival.R` 4), 201 assertions passed, 2 failed,
+0 skipped, and an expected-failure ledger reading `expected red : 2 / observed red : 2` with the
+note "the only red anchors are the recorded m1-m4 negative result". Transcript at
+`docs/results/module4-run-31375702141.txt`.
+
+**SUPERSEDED, kept for the record.** This block previously read "the suite has now RUN ON REAL
+DATA, and two of the four anchors are red", citing run 30840373033: 11 anchors, 57 assertions
+passed, 4 failed, 0 skipped, over FOUR checks (`subtype_platform` did not exist yet —
+`fn_check_subtype_platform` was added in response to run 30911448546, which is later). It also
+claimed "19 anchors across `test-sanity.R` and `test-clinical.R`", a figure no artifact contains.
+Those 30840373033 counts remain accurate *for that run*; transcript at
+`docs/results/phase3-anchors-run-30840373033.txt`, follow-up platform diagnostic (run 30911448546)
+at `docs/results/platform-diagnosis-run-30911448546.txt`.
 
 - **PASS — mutation frequencies.** VHL 44.8%, PBRM1 30.5%, SETD2 10.1%, BAP1 8.6%; all four inside
   their published ranges on the n=417 mutation subset.
 - **PASS — ccA/ccB.** Anti-correlation rho = −0.354 (p = 6.5e-17), silhouette 0.582, separation
   p = 3.6e-37, full 6+6 marker panels used.
-- **RED (underpowered, not contradicted) — BAP1 survival.** HR = 1.584, 95% CI 0.967–2.595,
-  p = 0.0677, n = 417. The DIRECTION the literature predicts holds; the significance assertion does
-  not, and the arithmetic in §12 shows this cohort could never have supplied it. The direction
-  requirement is unchanged; only the significance demand is retired, and only because it is
-  demonstrably mis-specified.
-- **RED (real negative result) — m1–m4 methylation strata.** Silhouette 0.1197 and Kruskal
+- **PASS (directionally right, underpowered) — BAP1 survival.** HR = 1.584, 95% CI 0.967–2.595,
+  p = 0.0677, n = 417. Run 31375702141 records `bap1_survival pass = TRUE`. The DIRECTION the
+  literature predicts holds; the significance assertion did not, and the arithmetic in §12 shows
+  this cohort could never have supplied it, so that demand was retired as mis-specified while the
+  direction requirement stayed unchanged. This entry was listed as RED under run 30840373033, which
+  predates the re-specification.
+- **PASS — MOFA subtypes vs assay platform.** Adjusted Rand index 0.0058, p 0.53 (run 31375702141;
+  the ARI was first measured in run 30911448546). The fifth check, absent from the earlier run.
+- **RED (real negative result) — four clusters in the merged methylation matrix.** Silhouette 0.1197 and Kruskal
   p = 1.3e-82, but adjusted Rand index against the HM27/HM450 assay split is **0.583** versus a
   0.25 veto. The four "strata" substantially track the platform, not the tumour. The anchor STAYS
   failing; no threshold was moved (§12).
 
 **A red anchor is this suite doing its job.** It caught a batch effect that a silhouette reported
-on its own would have sold as biology. The two reds are not interchangeable: one says the cohort is
-too small to answer the question asked, the other says the answer obtained is an artefact.
+on its own would have sold as biology. The two failure modes it surfaced are not interchangeable:
+one (BAP1) says the cohort is too small to answer the question asked and is now reported as an
+underpowered pass; the other (the methylation clusters) says the answer obtained is an artefact and
+stays red.
 
 Unit tests cover deterministic helpers (ID harmonisation, matrix alignment, transforms) on
 subsampled fixtures. Target ~80% coverage on the helper/utility layer; the analysis itself is
@@ -397,17 +437,38 @@ independent increment that cannot block release.
   contract now holds on real data, not only on synthetic fixtures. MOFA2 integration has since run
   too (15 factors on n=524, run 30718392588) and the positive-control suite has run on its output
   (run 30840373033), so factor, subtype and anchor results ARE now claimed — with the platform
-  caveats above attached to every methylation-loaded one. **The survival model has still NOT been
-  fitted**: no Phase-4 function exists in `R/` yet, and no C-index, calibration, or survival hazard
-  ratio is claimed anywhere. The only hazard ratio in the repo is the BAP1 positive control above.
+  caveats above attached to every methylation-loaded one.
+
+  ✅ **AND THE MODEL HAS SINCE BEEN FITTED (2026-08-10, run `31375702141`).** This bullet
+  previously ended "**The survival model has still NOT been fitted**: no Phase-4 function exists
+  in `R/` yet, and no C-index, calibration, or survival hazard ratio is claimed anywhere. The only
+  hazard ratio in the repo is the BAP1 positive control above." That is superseded, and is left
+  here recorded rather than deleted. `R/functions_survival.R` and `R/functions_model_eval.R` now
+  exist, and run `31375702141` (`verify-module2.yml`, conclusion success) recorded: survival frame
+  519 rows / 171 OS events; train 364 / test 155 with 124 training events, so a measured EPV-10 cap
+  of 12 with 5 predictors used; **held-out C-index Cox 0.7486, penalised Cox 0.7492, RSF 0.7524**;
+  **Cox optimism (apparent − held-out) 0.0125**; a 5-bin 5-year calibration table; and
+  **BAP1-from-expression AUROC 0.958 cross-validated / 0.960 held-out** on n = 413 with 36 mutants.
+  Transcript: `docs/results/module4-run-31375702141.txt`.
+
+  **Both caveats travel with those figures.** In the fitted Cox model only `stage_num`
+  (p = 9.6e-17) and `age_years` (p = 9.7e-06) reach significance — `Factor1` HR 0.982 (p = 0.60)
+  and `Factor4` HR 0.966 (p = 0.24) do not — so a C-index of 0.75 is a **stage-and-age** model and
+  the multi-omics factors add nothing detectable on this cohort. And because MOFA is fitted on all
+  524 cases and the 5000-gene variance filter spans all samples before either split, the held-out
+  figures are **unsupervised-transductive**, not fully out-of-sample; the recorded optimism bounds
+  the supervised component only.
 - **Frozen 2016 / hg19 snapshot**; genuine live-update is limited to the GDC statistics panel.
   Sample counts from the frozen snapshot **do not match** the current GDC portal in either
   direction (mutation covers more cases, CNV and HM450 fewer — see §2), so every quoted n must
   say which source it came from.
 - **Subtype → survival optimism** is controlled by held-out / nested CV, not (yet) by an external
   cohort.
-- **Bulk → single-cell mapping** is confounded by purity / immune infiltration; this is checked,
-  not assumed.
+- **Bulk → single-cell mapping** is confounded by purity / immune infiltration; the ESTIMATE
+  gate that would check this is specified in §10 and **NOT implemented**, so the confound is an
+  unaddressed design risk rather than a checked one. (This bullet previously read "this is checked,
+  not assumed", which contradicted README, docs/architecture.md and docs/talking-points.md; those
+  are correct and this was not.)
 - **CI does not run the full pipeline**; it tests and renders from cached results.
 
 ---
@@ -423,5 +484,5 @@ independent increment that cannot block release.
 ## Decisions locked
 
 1. Dashboard = Quarto Dashboard + Plotly (GitHub Pages, no server). **Confirmed.**
-2. Repo = `kidney-cancer-multiomics` at `~/Desktop/CV/kidney-cancer-multiomics`.
+2. Repo = `kidney-cancer-multiomics` (public GitHub repo; no fixed local checkout path).
 3. Single-cell = **included, last, independently releasable** (delivery-risk isolation).

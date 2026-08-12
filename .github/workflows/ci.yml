@@ -17,7 +17,10 @@ name: ci
 # versions equal renv.lock so CI still guards the pins it depends on.
 #
 # Full-lockfile restore is exercised where it belongs: the Dockerfile's
-# renv::restore() and the heavy-pull workflow.
+# renv::restore(). NOTE: heavy-pull.yml does NOT restore the lockfile -- it
+# GENERATES it (see its "Generate complete renv.lock from the installed
+# library" step). No workflow currently restores renv.lock; only the Docker
+# image build does.
 
 on:
   push:

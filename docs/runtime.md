@@ -1,10 +1,13 @@
 # Runtime and hardware
 
-The full pipeline is run **once** (`scripts/run_full_pipeline.R`) and the
-resulting `_targets/` store is published as a GitHub **release asset**
-(`scripts/freeze_release_assets.R`). CI and the dashboard restore that asset and
-render from it. A green CI badge does **not** mean CI reproduced the analysis end
-to end.
+The full pipeline is **designed** to be run once (`scripts/run_full_pipeline.R`)
+with the resulting `_targets/` store published as a GitHub **release asset**
+(`scripts/freeze_release_assets.R`), so that Pages and the cron can restore that
+asset and render from it. **The asset does not exist yet** — this repository has
+no releases — so `pages.yml` and `cron.yml`, both of which begin with `gh
+release download targets-store` under `set -euo pipefail`, would currently fail
+at their first step. A green CI badge does **not** mean CI reproduced the
+analysis end to end.
 
 ## Measured runtime — full pipeline, GitHub Actions run `31375702141`
 
@@ -26,7 +29,20 @@ dropped, and labelled rather than left to look like the others.
 | SNF sensitivity + concordance | `snf_clusters`, `concordance` | 6.4 s |
 | Literature positive controls | `sanity_results` | 9.1 s |
 | Module 4 (Cox / penalised Cox / RSF / C-index / BAP1 classifier) | 7 targets | 8.8 s |
-| **Total target compute** | 36 timed targets | **596 s ≈ 9.9 min** |
+| **Total of the rows above** | 30 targets | **595.9 s ≈ 9.9 min** |
+
+**A discrepancy this table used to hide.** The total row previously read
+"36 timed targets | 596 s". The six stage rows enumerate **30** targets, and
+their measured times sum to 595.9 s — so for both figures to hold, six further
+timed targets would have to account for ~0.1 s between them. That is not
+credible: run `31375702141` ran a bare `targets::tar_make()`
+(`.github/workflows/verify-module2.yml`), which also builds `gdc_live_panel` —
+a live HTTPS query to `api.gdc.cancer.gov` — plus `subtypes_df`,
+`km_subtype_df`, `sanity_table` and `dashboard_site`. `_targets.R` declares 41
+targets in total. Either the count or the partition was wrong, and the `meta`
+artifact that would settle it is not committed, so the **target count is
+withdrawn** and only the measured times are kept. The stage times themselves
+are unaffected — they are the per-target `seconds` fields as recorded.
 
 The **job** took 15 min 28 s wall clock (09:40:25 → 09:55:53 UTC). The
 difference — about 5.5 minutes — is container pull, package installation and the
@@ -85,8 +101,10 @@ the plan text for Phase 5 describes. Where they differ, the files are what runs.
 | `ci.yml` | push to `main`, PR | Three jobs. `r-checks` and `py-checks` lint (R + Python) and run `testthat` / `pytest` on subsampled fixtures, inside the Bioconductor image, asserting the installed versions match `renv.lock`. `render-smoke` renders all five `.qmd` pages twice — once with **no** store, asserting every page degrades to stated gaps, and once against a **synthetic fixture store** (`scripts/fixture_store_pipeline.R`), asserting every page renders its figures with no gaps left. **It does not restore the `targets-store` release asset**, so it is not reproduction and the numbers it renders are invented stand-ins; the deploying render is `pages.yml`. |
 | `pages.yml` | **`workflow_dispatch` only** | Restore the `targets-store` release asset, render `dashboard/`, deploy `_site/` to GitHub Pages. Deliberately manual: publishing makes the site public, and that decision is the repo owner's, not a side effect of a merge. The site is **not currently deployed**. |
 | `cron.yml` | Weekly (Mon 04:17 UTC) + manual | Rebuild **only** `gdc_live_panel` (and assert that nothing else rebuilt), re-freeze the store, and separately rebuild the container as the dependency-drift check. **It does not deploy Pages** and it does not touch the frozen research core. |
-| `verify-module2.yml` | manual | The only workflow that builds the research targets on real data; `HEAVY_PULL=true`. This is where every measured number in this repository comes from. |
-| `heavy-pull.yml`, `diagnose-platform.yml`, `validate-container.yml` | manual | One-off verification runs. |
+| `verify-module2.yml` | manual | Builds the research targets on real data (`HEAVY_PULL=true`): Modules 1-4 and the credibility-anchor suite. Runs `30718392588`, `30840373033`, `31375702141`. |
+| `heavy-pull.yml` | manual | Also builds research targets on real data (`HEAVY_PULL=true`, bare `tar_make()`). Produced the 524/413/417/241 cohort census, the 173-event survival census, the Module 1 matrix dimensions, and the generated 218-package `renv.lock`. Runs `30642823359`, `30708943504`. |
+| `diagnose-platform.yml` | manual | Also builds research targets on real data (`HEAVY_PULL=true`, bare `tar_make()`). Produced the whole platform-confound block: the 214/310 split, every factor-vs-platform AUC, the within-platform silhouettes, and `methyl_platform_overlap = 3`. Run `30911448546`. |
+| `validate-container.yml` | manual | Container/toolchain validation only; builds no research targets. |
 
 - `render-smoke` is a separate job on purpose: `tests/testthat.R` refuses to
   skip the store-backed literature anchors against a populated store, so a

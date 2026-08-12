@@ -357,7 +357,27 @@ fn_within_platform_silhouette <- function(methyl_mat, platform,
   out
 }
 
-#' Recover the four TCGA KIRC DNA-methylation strata (m1-m4).
+#' Recover four stable clusters in the merged HM27/HM450 methylation matrix.
+#'
+#' WHAT THIS IS AND IS NOT ANCHORED TO — read before quoting the verdict.
+#' An earlier version of this function called itself "recover the four TCGA
+#' KIRC DNA-methylation strata (m1-m4)" and reported the verdict under the
+#' label "TCGA KIRC methylation resolves into m1-m4 strata". That attribution
+#' was WRONG and is corrected here. TCGA KIRC (Nature 2013, PMID 23792563)
+#' says, in its RNA Expression section: "Unsupervised clustering methods
+#' identified four stable subsets in both mRNA (m1-m4) and miRNA (mi1-mi4)
+#' expression datasets" — m1-m4 are mRNA EXPRESSION subtypes (m1 corresponds
+#' to ccA, ccB splits across m2/m3, m4 covers the ~15% previously
+#' unclassified). That paper's DNA Methylation Profiles section reports
+#' GENE-LEVEL epigenetic silencing (VHL ~7%, UQCRH 36%) and SETD2-associated
+#' non-promoter hypomethylation; it defines NO four DNA-methylation strata.
+#'
+#' So k = 4 (METHYL_N_STRATA) is a DESIGN CHOICE carried over from the m1-m4
+#' expression subtypes, not a published methylation finding this check could
+#' reproduce or contradict. The red verdict on this snapshot is therefore a
+#' statement about THIS matrix — the merged HM27/HM450 partition tracks the
+#' assay rather than the tumour — and must never be reported as a failure to
+#' reproduce published methylation biology.
 #'
 #' FALSIFIABILITY, measured on constructed data, so the limits are on record:
 #' only the SILHOUETTE term discriminates. On 1000 iid-noise CpGs x 80 samples
@@ -473,8 +493,12 @@ fn_check_methyl_strata <- function(methyl_mat, platform = NULL,
     # 0.292 (FALSE, still green), with or without a 1.0 SD platform offset.
     !isTRUE(merged_exceeds_within)
   list(
-    label        = "TCGA KIRC methylation resolves into m1-m4 strata",
-    # State the verdict as a finding. A red m1-m4 light on this snapshot means
+    # NOT "TCGA KIRC methylation resolves into m1-m4 strata" — see the
+    # attribution note in this function's docstring. m1-m4 are the paper's mRNA
+    # EXPRESSION subtypes; k = 4 here is a design choice, so the label states
+    # what is actually tested rather than borrowing a published claim.
+    label        = "merged HM27/HM450 methylation resolves into 4 stable clusters",
+    # State the verdict as a finding. A red light on this snapshot means
     # something specific and defensible, and a bare FALSE invites a future
     # reader to "fix" it by moving a threshold — which is exactly the failure
     # mode this suite exists to prevent.
@@ -495,7 +519,7 @@ fn_check_methyl_strata <- function(methyl_mat, platform = NULL,
   )
 }
 
-#' Put the m1-m4 verdict into words, including WHY it is red.
+#' Put the methylation-cluster verdict into words, including WHY it is red.
 #'
 #' Separated from fn_check_methyl_strata so the reporting logic stays small and
 #' testable and the check body keeps to one job.
@@ -529,14 +553,14 @@ fn_methyl_strata_message <- function(pass, mean_sil, platform_ari,
     )
   }
   if (isTRUE(pass)) {
-    return(sprintf("m1-m4 strata recovered (silhouette %.4f)%s",
+    return(sprintf("4 stable methylation clusters recovered (silhouette %.4f)%s",
                    mean_sil, within_txt))
   }
   if (!is.na(platform_ari) && platform_ari >= max_platform_ari) {
     fmt <- paste0(
       "FINDING, not an unexplained failure: the merged methylation ",
       "partition tracks ASSAY PLATFORM (ARI %.3f vs ceiling %.2f), so ",
-      "the m1-m4 strata are NOT recovered on this snapshot ",
+      "4 stable methylation clusters are NOT recovered on this snapshot ",
       "(merged silhouette %.4f)%s. The cohort is deliberately NOT ",
       "restricted to one platform and NOT batch-corrected (too few ",
       "cases are assayed on both platforms for a correction to be ",
@@ -552,8 +576,8 @@ fn_methyl_strata_message <- function(pass, mean_sil, platform_ari,
   # `merged_exceeds_within` is the sole failing term — and falling through to the
   # floor message below stated a comparison the partition had CLEARED.
   # VERIFIED by direct call before this branch existed: platform_ari 0.10 with
-  # merged silhouette 0.1197 (ABOVE the 0.10 floor) rendered as "m1-m4 strata
-  # NOT recovered (silhouette 0.1197, floor 0.10)", i.e. it named the floor as
+  # merged silhouette 0.1197 (ABOVE the 0.10 floor) rendered as "4 methylation
+  # clusters NOT recovered (silhouette 0.1197, floor 0.10)", i.e. it named the floor as
   # the cause. That is precisely the reading that invites a future maintainer to
   # "fix" the red by lowering SANITY_MIN_SILHOUETTE — the failure mode this
   # phase exists to prevent. Not reachable on the frozen snapshot (ARI 0.583
@@ -573,13 +597,13 @@ fn_methyl_strata_message <- function(pass, mean_sil, platform_ari,
                    platform_ari, max_platform_ari))
   }
   if (mean_sil <= SANITY_MIN_SILHOUETTE) {
-    return(sprintf("m1-m4 strata NOT recovered (silhouette %.4f, floor %.2f)%s",
+    return(sprintf("4 methylation clusters NOT recovered (silhouette %.4f, floor %.2f)%s",
                    mean_sil, SANITY_MIN_SILHOUETTE, within_txt))
   }
   # Everything else: the silhouette cleared its floor and the platform terms are
   # satisfied, so some OTHER conjunct (stratum count, Kruskal p) failed. Say so
   # rather than blaming a threshold that was met.
-  sprintf(paste0("m1-m4 strata NOT recovered; the silhouette (%.4f) cleared its ",
+  sprintf(paste0("4 methylation clusters NOT recovered; the silhouette (%.4f) cleared its ",
                  "floor (%.2f) and the platform terms are satisfied, so the ",
                  "failing conjunct is the stratum count or the Kruskal test — ",
                  "read the full verdict object%s"),

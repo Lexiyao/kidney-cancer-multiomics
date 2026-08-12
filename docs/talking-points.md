@@ -34,22 +34,29 @@ Quarto/Plotly dashboard.
 - **The positive-control test suite.** VHL/PBRM1/SETD2/BAP1 mutation frequencies
   inside published ccRCC ranges (44.8 / 30.5 / 10.1 / 8.6 %), BAP1-mutant worse
   OS, ccA/ccB separation (rho −0.354), MOFA subtypes independent of assay
-  platform (ARI 0.0058), methylation strata m1–m4 — as **24 real `testthat`
+  platform (ARI 0.0058), four stable clusters in the merged methylation matrix
+  — as **24 real `testthat`
   anchor tests** (201 expectations green, 2 red) that execute against the frozen
   store in the **`verify-module2.yml` container run `31375702141`**, not as
   figures I eyeballed. Push/PR CI (`ci.yml`) lints and runs the fixture tests
   only; it does not restore the store, so these anchors SKIP there — measured on
-  a clean checkout with no store, `Rscript tests/testthat.R` gives 703 pass / 0
-  fail / 26 skip, every store-backed anchor among the skips. This is the most
+  a clean checkout with no store, `Rscript tests/testthat.R` gives **0 fail, 26
+  skip, every store-backed anchor among the skips** (705 passing expectations at
+  the time of writing; the pass count moves whenever a test is added, so the
+  falsifiable claim is the 0-fail / 26-skip structure, not the total). This is a
+  local measurement on a clean tree, not a figure from a committed run. This is the most
   persuasive part of the repo, and it is persuasive because of the container
   run, not because of the badge.
 
-- **The failing one is pinned, not silenced.** m1–m4 comes back RED: the merged
-  methylation partition tracks the HM27/HM450 assay split (ARI 0.583 against a
-  0.25 veto). That container run holds an expected-failure ledger — recorded as
+- **The failing one is pinned, not silenced.** The 4-cluster methylation check
+  comes back RED: the merged methylation partition tracks the HM27/HM450 assay
+  split (ARI 0.583 against a 0.25 veto). I am careful about what that red means
+  — TCGA's m1–m4 are mRNA *expression* subtypes and no four DNA-methylation
+  strata are published for KIRC, so `k = 4` is my design choice and the red is a
+  finding about this assay merge, not a failed replication. That container run holds an expected-failure ledger — recorded as
   `expected red : 2 / observed red : 2`, "the only red anchors are the recorded
-  m1–m4 negative result" — so a *new* red fails the job, and an m1–m4 anchor
-  that starts *passing* also fails the job, because that would mean the
+  m1-m4 negative result" — so a *new* red fails the job, and this anchor
+  starting to *pass* also fails the job, because that would mean the
   recorded negative no longer holds. Neither widening a published
   range nor lowering a threshold was on the table.
 
@@ -105,10 +112,15 @@ Quarto/Plotly dashboard.
 
 - **"Regularly updated tool" is scoped to one panel.** The research core is a
   frozen 2016/hg19 snapshot; a weekly re-run reproduces it byte-for-byte. What
-  genuinely updates is the live GDC API panel, refreshed by a weekly cron that
-  asserts no frozen target rebuilt. And the *published* page only advances when
-  the Pages workflow is dispatched, which is manual — so the honest claim is
-  "scheduled refresh of a cached live panel", not "a live site".
+  genuinely updates is the live GDC API panel, which a weekly cron is **wired**
+  to refresh while asserting that no frozen target rebuilt. I say "wired", not
+  "does": that cron has never executed in its current form — the two scheduled
+  runs on record (`30795010494`, `31359626479`) ran an earlier placeholder job —
+  and it cannot succeed until the `targets-store` release asset it restores
+  actually exists, which it does not. And the *published* page only advances
+  when the Pages workflow is dispatched, which is manual. So the honest claim is
+  "a scheduled refresh of a cached live panel, built and not yet run", not "a
+  live site".
 
 - **Single cell is not built.** Module 6 (GSE159115) and its ESTIMATE purity
   gate are specified and non-blocking; no code for either exists yet, so the
@@ -116,13 +128,17 @@ Quarto/Plotly dashboard.
   checked one. I would rather say that than imply a check that has never run.
 
 - **CI does not reproduce the analysis.** It lints and runs unit tests on
-  subsampled fixtures; the site renders from a cached `_targets` store restored
-  from a release asset. A green badge means the tests passed, nothing more.
+  subsampled fixtures. The deploying render is *designed* to read a cached
+  `_targets` store restored from a release asset — that asset has not been
+  produced yet, so the site has never been rendered against real numbers, and a
+  local render shows a stated gap wherever a store-backed figure would go. A
+  green badge means the tests passed, nothing more.
 
 ## If asked "what would you do next?"
 
 In order: an external RCC validation cohort (the single biggest weakness);
 implement the ESTIMATE purity gate before anything single-cell touches the
 subtypes; and re-run the methylation arm restricted to HM450 alone at n = 241 to
-see whether m1–m4 survives when the assay confound is removed by design rather
+see whether four clusters survive when the assay confound is removed by design
+rather
 than adjusted for — accepting the cohort loss as the price of the answer.

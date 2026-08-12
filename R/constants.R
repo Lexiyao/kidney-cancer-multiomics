@@ -122,7 +122,10 @@ SILENT_CLASSES      <- c(                        # variant classes treated as no
 MOFA_N_FACTORS <- 15L        # upper bound; MOFA prunes inactive factors
 MOFA_MAXITER   <- 1000L      # convergence_mode = "fast" stops earlier
 MOFA_SEED      <- 42L
-K_SUBTYPES     <- 4L         # KIRC has 4 documented methylation/expression strata
+# K_SUBTYPES = 4 matches the four documented KIRC mRNA EXPRESSION subtypes
+# m1-m4 (TCGA Nature 2013). See METHYL_N_STRATA below for why that is an
+# expression result and not a methylation one.
+K_SUBTYPES     <- 4L
 SUBTYPE_SEED   <- 42L
 SNF_K          <- 20L        # SNF K-nearest-neighbours
 SNF_ALPHA      <- 0.5        # SNF affinity hyperparameter (sigma)
@@ -156,15 +159,39 @@ PUBLISHED_MUT_FREQ_RANGES <- list(
 CCB_PROLIFERATION_MARKERS <- c("MKI67", "CCNB1", "CCNB2", "BUB1", "TOP2A", "FOXM1")
 CCA_ANGIOGENESIS_MARKERS  <- c("VEGFA", "CA9", "EPAS1", "ANGPT2", "KDR", "FLT1")
 
-# Number of TCGA KIRC DNA-methylation strata (m1-m4).
+# Number of clusters the merged-methylation positive control looks for.
+#
+# THIS IS A DESIGN CHOICE, NOT A PUBLISHED METHYLATION FINDING — corrected
+# 2026-08-12, and the correction is recorded rather than overwritten because an
+# earlier version of this line read "Number of TCGA KIRC DNA-methylation strata
+# (m1-m4)" and that attribution was wrong.
+#
+# WHAT THE SOURCE ACTUALLY SAYS. TCGA KIRC (Nature 2013, PMID 23792563),
+# RNA Expression section: "Unsupervised clustering methods identified four
+# stable subsets in both mRNA (m1-m4) and miRNA (mi1-mi4) expression datasets",
+# with m1 corresponding to ccA, ccB splitting across m2/m3, and m4 covering the
+# ~15% of tumours the ccA/ccB scheme left unclassified. m1-m4 are therefore
+# mRNA EXPRESSION subtypes. That paper's DNA Methylation Profiles section
+# reports gene-level epigenetic silencing (VHL ~7%, UQCRH hypermethylated in
+# 36%) and SETD2-associated non-promoter hypomethylation — it defines NO four
+# DNA-methylation strata, and no source in this repo's bibliography does.
+#
+# CONSEQUENCE FOR THE ANCHOR. k = 4 is carried over from the expression
+# subtypes as a reasonable prior on how much structure to look for; the check
+# it feeds is therefore a test of whether THIS merged HM27/HM450 matrix carries
+# four separable clusters, NOT a reproduction attempt against published
+# methylation biology. The red verdict on this snapshot must be reported that
+# way — as a finding about the assay merge — and never as "TCGA's methylation
+# strata failed to replicate", which would misdescribe both the paper and the
+# result. See the attribution note on fn_check_methyl_strata.
 METHYL_N_STRATA <- 4L
 
 # Maximum adjusted Rand index between the methylation k-means partition and the
 # ASSAY PLATFORM. methyl_mat is cbind(HM27, HM450) with NO batch correction
 # (fn_merge_methyl_platforms only column-binds), and platform is the strongest
 # single axis in merged 27k/450k M-values — so without this term the green light
-# "TCGA KIRC methylation resolves into m1-m4 strata" could be produced entirely
-# by the assay rather than by the published biology.
+# "merged HM27/HM450 methylation resolves into 4 stable clusters" could be
+# produced entirely by the assay rather than by any tumour biology.
 #
 # MEASURED on constructed data (500 CpGs, 200 HM27-like + 324 HM450-like
 # samples): with iid noise, NO biological strata and only a per-platform mean
@@ -224,11 +251,26 @@ SANITY_SEED           <- 42L
 
 # --- BAP1 survival: what this cohort can and cannot be asked to show --------
 #
-# Published effect band for BAP1-mutant vs wild-type ccRCC overall survival.
-# Sources: Kapur et al. (Lancet Oncol 2013), Hakimi et al. (Eur Urol 2013),
-# TCGA KIRC (Nature 2013). Reported adjusted/unadjusted HRs across those
-# cohorts sit roughly in 1.2-3.0; the anchor requires the point estimate to be
-# BOTH in the published DIRECTION (HR > 1) and of a plausible MAGNITUDE.
+# Published effect band for BAP1-associated adverse overall survival in ccRCC.
+# This is a SYNTHESIS of BAP1-adverse-prognosis effect sizes across cohorts, not
+# a band any single paper reports for BAP1-mutant vs wild-type. Read what each
+# source actually says before quoting it:
+#
+#   Kapur et al. (Lancet Oncol 2013, PMID 23333114) reports HR 2.7 (UTSW,
+#     95% CI 0.99-7.6) and HR 2.8 (TCGA, 1.4-5.9) for BAP1-mutant vs
+#     PBRM1-MUTANT tumours -- NOT vs wild-type.
+#   Hakimi et al. (Eur Urol 2013, PMID 23036577) reports a permutation
+#     log-rank ASSOCIATION between BAP1 mutation and worse cancer-specific
+#     survival (p = 0.01), and no hazard ratio at all.
+#   TCGA KIRC (Nature 2013, PMID 23792563) reports that among all significantly
+#     mutated genes "only mutation of BAP1 correlated with poor survival
+#     outcome", without an HR in the main text.
+#
+# The DIRECTION these anchor -- BAP1 loss -> worse OS -- is exactly what this
+# check requires, and is unambiguous across all three. The 1.2-3.0 MAGNITUDE
+# band is the conservative envelope those effect sizes imply, and is used only
+# to reject implausible point estimates. The anchor requires the point estimate
+# to be BOTH in the published DIRECTION (HR > 1) and of a plausible MAGNITUDE.
 #
 # This band is a TIGHTENING, not a loosening. The previous anchor asserted only
 # `hr > 1`, which an HR of 1.0001 or of 40 (a merge blow-up, or a fit on a

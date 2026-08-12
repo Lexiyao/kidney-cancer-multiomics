@@ -88,8 +88,10 @@ fn_variance_explained <- function(mofa_model) {
 #' Assign MOFA factor subtypes via seeded k-means (returns a new factor vector).
 #'
 #' Clusters samples in the MOFA latent space into `k` subtypes. `K_SUBTYPES`
-#' defaults to the four documented KIRC methylation/expression strata. The RNG
-#' is snapshotted and restored so seeding never mutates caller state.
+#' defaults to 4, matching the four documented KIRC mRNA EXPRESSION subtypes
+#' m1-m4 (TCGA Nature 2013) — an expression result, not a methylation one; see
+#' METHYL_N_STRATA in R/constants.R. The RNG is snapshotted and restored so
+#' seeding never mutates caller state.
 #'
 #' @param factor_matrix numeric matrix, samples x factors (`fn_extract_factors`).
 #' @param k number of subtypes.

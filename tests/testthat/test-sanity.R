@@ -578,8 +578,8 @@ test_that("fn_check_methyl_strata FAILS when the partition is just the assay", {
   # THE confound this check could not see. methyl_mat is cbind(HM27, HM450) with
   # NO batch correction (fn_merge_methyl_platforms only column-binds), and
   # platform is the strongest single axis in merged 27k/450k M-values. So the
-  # top-line green light "TCGA KIRC methylation resolves into m1-m4 strata"
-  # could be produced ENTIRELY by the assay rather than by the published m1-m4
+  # top-line green light "merged HM27/HM450 methylation resolves into 4 stable
+  # clusters" could be produced ENTIRELY by the assay rather than by any tumour
   # biology, and nothing in the returned object, in `pass`, or in the Task 3.7
   # anchor could distinguish the two.
   #
@@ -1126,7 +1126,7 @@ test_that("the within-platform term can only turn a verdict RED", {
   expect_true(is.na(bare$merged_exceeds_within))
 })
 
-test_that("the m1-m4 verdict states its finding in words", {
+test_that("the methylation-cluster verdict states its finding in words", {
   # A bare FALSE invites a future reader to move a threshold. The object must
   # say what it found and why.
   d <- helper_platform_matrix(99, plat_offset = 2.0)
@@ -1134,7 +1134,8 @@ test_that("the m1-m4 verdict states its finding in words", {
 
   expect_false(red$pass)
   expect_true(grepl("tracks ASSAY PLATFORM", red$message, fixed = TRUE))
-  expect_true(grepl("m1-m4 strata are NOT recovered", red$message, fixed = TRUE))
+  expect_true(grepl("4 stable methylation clusters are NOT recovered",
+                    red$message, fixed = TRUE))
   expect_true(grepl("MERGED silhouette EXCEEDS both", red$message, fixed = TRUE))
   # The per-arm numbers travel with the sentence.
   expect_true(grepl("HM27", red$message, fixed = TRUE))
@@ -1149,11 +1150,11 @@ test_that("the m1-m4 verdict states its finding in words", {
   expect_false(grepl("NOT recovered", green$message, fixed = TRUE))
 })
 
-test_that("a veto-only m1-m4 red does NOT blame the silhouette floor", {
+test_that("a veto-only methylation red does NOT blame the silhouette floor", {
   # THE CASE THE MESSAGE USED TO MISATTRIBUTE. When the cluster-vs-platform ARI
   # sits UNDER its ceiling but the merged silhouette still beats both arms,
   # `merged_exceeds_within` is the sole failing term. Before this branch existed
-  # the function fell through to "m1-m4 strata NOT recovered (silhouette %.4f,
+  # the function fell through to "4 methylation clusters NOT recovered (silhouette %.4f,
   # floor %.2f)" — naming a floor the partition had CLEARED (0.1197 > 0.10) as
   # the cause, which is the reading that invites someone to lower the floor.
   #
@@ -1382,16 +1383,17 @@ test_that("ANCHOR: BAP1-mutant tumours have worse OS (HR > 1)", {
   # `expect_gt(bs$ci_low, 1)`). MEASURED on the frozen snapshot, run
   # 30840373033 (printed in docs/results/phase3-anchors-run-30840373033.txt):
   # HR 1.584, CI 0.967-2.595, p = 0.0677, n = 417, 8.63% mutant (36 cases).
-  # DERIVED BUT NOT RECORDED ANYWHERE: 138 OS events in the fitted subset, ~12
-  # of them in the mutant arm — no transcript prints an event count, and the
-  # recorded CI actually implies ~18 in the mutant arm. See the caveat block in
-  # R/constants.R; the LEVEL 3 workflow step now prints these, so the next
-  # container run settles it.
+  # RECORDED, not derived: run 31375702141 prints n_events = 147, n_mutant = 36,
+  # n_events_mutant = 18, transcribed at
+  # docs/results/module4-run-31375702141.txt. (An earlier version of this
+  # comment quoted a reconstructed 138 events / ~12 in the mutant arm and said
+  # no transcript printed an event count. That reconstruction is superseded and
+  # must not be quoted — see R/constants.R.)
   # The DIRECTION matches the literature. The significance does not.
   #
   # It cannot. Schoenfeld's requirement at two-sided 0.05 and 80% power for an
   # HR of 1.584 at 8.63% exposure prevalence is ~470 EVENTS; this cohort has
-  # 138 (derived) — about 3.4x short. The old requirement was therefore not a test of
+  # 147 (recorded) — about 3.2x short. The old requirement was therefore not a test of
   # this pipeline at all, it was a test of the size of TCGA KIRC, and no
   # correct implementation running on this snapshot could ever have satisfied
   # it. That is a MIS-SPECIFIED REQUIREMENT, which is the one and only
@@ -1489,17 +1491,17 @@ test_that("ANCHOR: the BAP1 control is UNDERPOWERED, and that is asserted", {
   expect_gt(mdhr, PUBLISHED_BAP1_HR_RANGE[["low"]])
 
   # The composition the arithmetic rests on. MEASURED: 8.63% mutant (36 of
-  # 417). DERIVED but NOT YET RECORDED in any committed transcript: 138 OS
-  # events, ~12 in the mutant arm (see R/constants.R). A regression that changed
-  # the exposure prevalence would change the event requirement without touching
-  # anything else in this file.
+  # 417). ALSO RECORDED, by run 31375702141: 147 OS events, 18 of them in the
+  # mutant arm (docs/results/module4-run-31375702141.txt). A regression that
+  # changed the exposure prevalence would change the event requirement without
+  # touching anything else in this file.
   expect_gt(bs$mutant_frac, 0)
   expect_lt(bs$mutant_frac, 1)
   expect_equal(bs$mutant_frac, bs$n_mutant / bs$n)
   expect_lte(bs$n_events_mutant, bs$n_events)
   expect_lte(bs$n_mutant, bs$n)
   # The mutant arm carries the information, and it is thin. Named explicitly so
-  # nobody reads the 138-event total as if it were the effective sample size.
+  # nobody reads the 147-event total as if it were the effective sample size.
   expect_lt(bs$n_events_mutant, bs$n_events / 2)
 
   # ... AND IT MUST NOT BE EMPTY. `expect_lt(n_events_mutant, n_events / 2)` is
@@ -1550,16 +1552,17 @@ test_that("ANCHOR: the BAP1 survival anchor was fitted on the mutation subset", 
   expect_lte(bs$n, COHORT_SIZES$mutation_subset)
   # The event count too. `n` alone does not bound what the fit saw: a cohort of
   # 417 with 6 deaths carries no more information than a cohort of 20, and the
-  # Cox likelihood is driven by events, not cases. DERIVED, NOT RECORDED: 138
-  # OS events in the mutation subset (see R/constants.R). The floor below is
-  # MIN_OS_EVENTS, a constant, precisely so this anchor does not depend on that
-  # unrecorded figure.
+  # Cox likelihood is driven by events, not cases. RECORDED by run 31375702141:
+  # 147 OS events in the mutation subset
+  # (docs/results/module4-run-31375702141.txt). The floor below is
+  # MIN_OS_EVENTS, a constant, so this anchor reads the value from the target
+  # rather than depending on that figure.
   expect_gte(bs$n_events, MIN_OS_EVENTS)
   expect_lte(bs$n_events, bs$n)
 
   # `expect_gt(bs$ci_low, 1)` USED TO BE HERE and has been REMOVED, for exactly
-  # the reason set out in the preceding anchor: with 138 events (derived, not
-  # recorded) against the ~470
+  # the reason set out in the preceding anchor: with 147 events (recorded, run
+  # 31375702141) against the ~470
   # Schoenfeld requires, a 95% interval excluding 1 is arithmetically out of
   # this cohort's reach (MEASURED CI 0.967-2.595). Requiring it made the anchor
   # a test of TCGA KIRC's size rather than of this pipeline. It is replaced by

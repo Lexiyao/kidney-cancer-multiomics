@@ -178,8 +178,10 @@ htmltools::div(
     "<a href='survival.qmd'>Survival</a> and ",
     "<a href='factors.qmd'>MOFA Factors</a> pages, not on their own.</p>",
     "<p>Nothing here is filled in when the frozen store is missing: a card ",
-    "with no store prints a stated gap. If a number is visible, the pipeline ",
-    "produced it.</p>"
+    "with no store prints a stated gap. Every value box and figure on this ",
+    "page is a live read from the store; the numbers in the red-light card ",
+    "beside them are prose quoted from the committed run transcripts under ",
+    "<code>docs/results/</code>, and carry their run id.</p>"
   ))
 )
 ```
@@ -187,8 +189,11 @@ htmltools::div(
 ### Column {width=40%}
 
 ::: {.card title="Read the red light before the value boxes"}
-**The m1–m4 methylation-strata positive control FAILS, and it stays failing
-here.** `methyl_mat` is `cbind(HM27, HM450)` on common CpGs with **no batch
+**The merged-methylation 4-cluster positive control FAILS, and it stays
+failing here.** (`k = 4` is a design choice taken from the m1–m4 mRNA
+*expression* subtypes of TCGA Nature 2013, which publishes no four
+DNA-methylation strata — so this is a finding about the assay merge, not a
+failed replication.) `methyl_mat` is `cbind(HM27, HM450)` on common CpGs with **no batch
 correction** (cohort split HM27 214 / HM450 310), and the adjusted Rand index
 against the assay split is **0.583** versus a 0.25 veto. Worse for the
 optimistic reading: the strata are *not* recovered inside a single platform

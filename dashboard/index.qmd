@@ -41,18 +41,21 @@ away. Read the [Dashboard](dashboard.qmd) red-light card and the
 
 Each row names the code that implements the skill **and the run that executed
 it**. A row with no run behind it says so; nothing in this table is claimed on
-the strength of an intention.
+the strength of an intention. Four runs have their raw output committed under
+`docs/results/` and can be opened: `30718392588`, `30840373033`, `30911448546`,
+`31375702141`. The other two ids below are marked *(transcript not committed)*,
+because a run id a reader cannot open is weaker evidence than one they can.
 
 | Skill | Where it lives | Status — and the evidence |
 |---|---|---|
 | Somatic multi-omics integration | `R/functions_integrate.R` (MOFA2 + SNF), Modules 1–3 | **Run on real data.** 15 factors on n = 524, four subtypes (20 / 306 / 76 / 122), MOFA-vs-SNF ARI 0.351 — run `30718392588`, re-emitted by `31375702141` |
-| Transcriptomic / epigenomic / CNV curation | `R/functions_ingest.R`, `R/functions_preprocess.R` | **Run on real data.** `rna_mat` 5000 × 524, `methyl_mat` 5000 × 524 (HM27 ∪ HM450 on common CpGs), `cnv_mat` 24776 × 524, `mut_annot` 417 × 7 — run `30708943504` |
-| Reproducible pipeline + version control + environment manager | `_targets.R`, `renv.lock` (218 packages), `Dockerfile`, seven GitHub Actions workflows | **Run.** Every result above was produced inside `bioconductor/bioconductor_docker:RELEASE_3_23` from the lockfile |
-| R + Python in one pipeline | MOFA2 via `reticulate`/`basilisk` (Module 2); `python/bap1_classifier.py` via `reticulate` (Module 4) | **Run on real data.** MOFA2 trains against the container's system Python with no conda download (run `30570220145`); the classifier's AUROC is below |
+| Transcriptomic / epigenomic / CNV curation | `R/functions_ingest.R`, `R/functions_preprocess.R` | **Run on real data.** `rna_mat` 5000 × 524, `methyl_mat` 5000 × 524 (HM27 ∪ HM450 on common CpGs), `cnv_mat` 24776 × 524, `mut_annot` 417 × 7 — run `30708943504` (transcript not committed) |
+| Reproducible pipeline + version control + environment manager | `_targets.R`, `renv.lock` (218 packages), `Dockerfile`, seven GitHub Actions workflows | **Run.** Every result above was produced inside `bioconductor/bioconductor_docker:RELEASE_3_23`, with the research packages installed by `BiocManager`. `renv.lock` pins the environment the `Dockerfile` restores and `ci.yml` asserts against, not the one these figures came out of |
+| R + Python in one pipeline | MOFA2 via `reticulate`/`basilisk` (Module 2); `python/bap1_classifier.py` via `reticulate` (Module 4) | **Run on real data.** MOFA2 trains against the container's system Python with no conda download (run `30570220145`, transcript not committed); the classifier's AUROC is below |
 | ML + survival analysis | `R/functions_survival.R` (Cox / penalised Cox / RSF), `R/functions_model_eval.R` (C-index + calibration written from scratch) | **Fitted on real data** — run `31375702141`. Read the "what these do not mean" note below before quoting the C-index |
-| Literature positive controls as tests | `R/functions_sanity.R`, `tests/testthat/test-sanity.R` | **Run on real data.** 24 anchor tests (201 expectations green, 2 red); 4 of 5 checks pass, **m1–m4 fails and is pinned as an expected red** — run `31375702141` |
+| Literature positive controls as tests | `R/functions_sanity.R`, `tests/testthat/test-sanity.R` | **Run on real data.** 24 anchor tests (201 expectations green, 2 red); 4 of 5 checks pass, **the 4-cluster methylation check fails and is pinned as an expected red** — run `31375702141` |
 | Data viz (Plotly) + communicating to a non-technical reader | `dashboard/*.qmd`, this site | **Built and rendering.** Five pages; every card degrades to a stated gap when a target is missing |
-| Public data → regularly updated tool | `R/functions_gdc_live.R`, `.github/workflows/cron.yml` | **Built; scoped honestly.** The weekly cron refreshes the [live GDC panel](live-gdc.qmd) only. Deployment of the rendered site is still a manual action, so the *published* page advances only when Pages is run |
+| Public data → regularly updated tool | `R/functions_gdc_live.R`, `.github/workflows/cron.yml` | **BUILT, NOT YET RUN.** The weekly cron is wired to refresh the [live GDC panel](live-gdc.qmd) only, but it has not yet executed in its current form and needs a `targets-store` release asset that does not exist yet. Deployment of the rendered site is a separate manual action |
 | Single-cell | — | **NOT BUILT.** Module 6 (GSE159115 + the ESTIMATE purity gate) is v1.1 and non-blocking; no code for it exists in this repository yet, so no single-cell claim is made anywhere |
 | Publication-quality static figures | — | **NOT BUILT.** The figures here are interactive HTML; there is no manuscript-figure export path in the repo |
 
@@ -147,14 +150,22 @@ if (is.null(sanity_table)) {
 }
 ```
 
-Four of the five checks pass on the real snapshot; **m1–m4 fails**. The merged
-methylation partition tracks the **assay platform** (adjusted Rand index 0.583
-against a 0.25 veto), and the strata are not recovered inside either platform on
-its own — within-arm silhouettes HM27 0.0858 and HM450 0.0489 are both *below*
-the merged 0.1197, so the merge manufactures the structure rather than diluting
-it. The failure is pinned as an expected red in CI: a *new* red fails the job,
-and so does an m1–m4 anchor that starts passing. See
-[MOFA Factors](factors.qmd) for the per-factor platform AUCs.
+Four of the five checks pass on the real snapshot; **the merged-methylation
+4-cluster check fails**. That partition tracks the **assay platform** (adjusted
+Rand index 0.583 against a 0.25 veto), and four clusters are not recovered
+inside either platform on its own — within-arm silhouettes HM27 0.0858 and
+HM450 0.0489 are both *below* the merged 0.1197, so the merge manufactures the
+structure rather than diluting it. The failure is pinned as an expected red in
+the container run (`verify-module2.yml`): a *new* red fails the job, and so does
+this anchor starting to pass. See [MOFA Factors](factors.qmd) for the per-factor
+platform AUCs.
+
+**What this red is not.** It is not a failure to reproduce published
+methylation biology. TCGA KIRC (Nature 2013) identifies m1–m4 as four stable
+mRNA **expression** subtypes and reports no four DNA-methylation strata for
+KIRC; `k = 4` here is a design choice carried over from those expression
+subtypes. The finding is about this merged HM27/HM450 matrix, not about the
+paper.
 
 What the confound does not touch: the MOFA **subtypes** are platform-clean (ARI
 0.0058, *p* = 0.53), and the mutation-frequency (VHL 44.8 %, PBRM1 30.5 %,
@@ -164,9 +175,9 @@ matrix at all.
 ::: {.dashboard-note}
 **Honest scope.** Effective *n* is 241–524, set by modality intersection. The
 research core is a frozen 2016 / hg19 snapshot and never updates. CI lints and
-runs unit tests on subsampled fixtures; the site renders from a cached
-`_targets` store restored from a release asset — **a green CI badge is not
-end-to-end reproduction**. Full limitations are in the
+runs unit tests on subsampled fixtures; the deploying render is designed to read
+a cached `_targets` store restored from a release asset, and that asset has not
+been produced yet — **a green CI badge is not end-to-end reproduction**. Full limitations are in the
 [README](https://github.com/Lexiyao/kidney-cancer-multiomics#known-limitations-stated-openly)
 and `docs/runtime.md`.
 :::

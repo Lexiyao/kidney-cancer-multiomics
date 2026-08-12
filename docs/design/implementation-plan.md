@@ -123,7 +123,7 @@ This phase establishes the reproducible environment every later module assumes: 
 
 - [ ] **Step 1: Create the directory tree.**
 ```bash
-cd /Users/yaozixi/Desktop/CV/kidney-cancer-multiomics
+cd "$REPO_ROOT"   # the repo checkout; every command below assumes the repo root
 mkdir -p R python \
   tests/testthat tests/pytest tests/fixtures \
   dashboard config scripts docs/design \
@@ -229,7 +229,7 @@ MIT — see `LICENSE`.
 
 - [ ] **Step 5: Initialise git and commit.**
 ```bash
-cd /Users/yaozixi/Desktop/CV/kidney-cancer-multiomics
+cd "$REPO_ROOT"   # the repo checkout; every command below assumes the repo root
 git init -q
 git checkout -b main 2>/dev/null || git branch -M main
 git add -A
@@ -301,7 +301,7 @@ FIXTURE_DIR <- file.path(root, "tests", "fixtures")
 
 - [ ] **Step 3: Run it — verify it FAILS (constants missing).**
 ```bash
-cd /Users/yaozixi/Desktop/CV/kidney-cancer-multiomics
+cd "$REPO_ROOT"   # the repo checkout; every command below assumes the repo root
 Rscript tests/testthat.R
 ```
 Expected: error `cannot open file 'R/constants.R': No such file or directory` (helper cannot source constants yet).
@@ -431,7 +431,7 @@ License: MIT + file LICENSE
 
 - [ ] **Step 3: Initialise renv (writes `renv/activate.R`; commit it as generated).**
 ```bash
-cd /Users/yaozixi/Desktop/CV/kidney-cancer-multiomics
+cd "$REPO_ROOT"   # the repo checkout; every command below assumes the repo root
 Rscript -e 'if (!requireNamespace("renv", quietly = TRUE)) install.packages("renv", repos = "https://cloud.r-project.org")'
 Rscript -e 'renv::init(bioconductor = "3.23", bare = TRUE, restart = FALSE)'
 ```
@@ -519,7 +519,7 @@ scanpy==1.10.2
 
 - [ ] **Step 2: Verify the pins resolve (dry-run, no install).**
 ```bash
-cd /Users/yaozixi/Desktop/CV/kidney-cancer-multiomics
+cd "$REPO_ROOT"   # the repo checkout; every command below assumes the repo root
 python3 -m pip install --dry-run -r requirements.txt >/dev/null && echo "requirements resolve OK"
 ```
 Expected: `requirements resolve OK`.
@@ -567,7 +567,7 @@ fixtures:
 
 - [ ] **Step 2: Verify it loads and the flag defaults to false.**
 ```bash
-cd /Users/yaozixi/Desktop/CV/kidney-cancer-multiomics
+cd "$REPO_ROOT"   # the repo checkout; every command below assumes the repo root
 Rscript -e 'p <- yaml::read_yaml("config/params.yml");
   stopifnot(isFALSE(p$heavy_pull),
             setequal(p$cohort$methylation_platforms, c("HM27", "HM450")));
@@ -621,7 +621,7 @@ def test_fixture_dir_exists(fixture_dir):
 
 - [ ] **Step 2: Run it — verify it FAILS (no conftest → `fixture_dir` unknown).**
 ```bash
-cd /Users/yaozixi/Desktop/CV/kidney-cancer-multiomics
+cd "$REPO_ROOT"   # the repo checkout; every command below assumes the repo root
 python3 -m pytest tests/pytest -q
 ```
 Expected: `test_fixture_dir_exists` errors with `fixture 'fixture_dir' not found`.
@@ -756,7 +756,7 @@ list(
 
 - [ ] **Step 2: Build and verify the target resolves.**
 ```bash
-cd /Users/yaozixi/Desktop/CV/kidney-cancer-multiomics
+cd "$REPO_ROOT"   # the repo checkout; every command below assumes the repo root
 Rscript -e 'targets::tar_make()'
 Rscript -e 'print(targets::tar_read(scaffold_env_check)$snapshot_date)'
 ```
@@ -834,7 +834,7 @@ CMD ["R", "--no-save"]
 
 - [ ] **Step 3: Build the image.**
 ```bash
-cd /Users/yaozixi/Desktop/CV/kidney-cancer-multiomics
+cd "$REPO_ROOT"   # the repo checkout; every command below assumes the repo root
 docker build -t kirc-multiomics:scaffold .
 ```
 Expected: build completes; final layer copies the project; no `basilisk`/conda download lines appear.
@@ -918,7 +918,7 @@ jobs:
 
 - [ ] **Step 2: Validate the workflow parses and the lint command works locally.**
 ```bash
-cd /Users/yaozixi/Desktop/CV/kidney-cancer-multiomics
+cd "$REPO_ROOT"   # the repo checkout; every command below assumes the repo root
 Rscript -e 'yaml::read_yaml(".github/workflows/ci.yml"); cat("ci.yml valid\n")'
 Rscript -e 'l <- lintr::lint_dir("R"); cat("R lints:", length(l), "\n")'
 ```
@@ -1015,7 +1015,7 @@ h2 {
 
 - [ ] **Step 5: Render locally to verify.**
 ```bash
-cd /Users/yaozixi/Desktop/CV/kidney-cancer-multiomics
+cd "$REPO_ROOT"   # the repo checkout; every command below assumes the repo root
 quarto render dashboard
 test -f dashboard/_site/index.html && echo "site rendered OK"
 ```
@@ -1103,7 +1103,7 @@ jobs:
 
 - [ ] **Step 2: Validate and commit.**
 ```bash
-cd /Users/yaozixi/Desktop/CV/kidney-cancer-multiomics
+cd "$REPO_ROOT"   # the repo checkout; every command below assumes the repo root
 Rscript -e 'yaml::read_yaml(".github/workflows/cron.yml"); cat("cron.yml valid\n")'
 git add .github/workflows/cron.yml
 git commit -q -m "ci: add weekly cron scaffold for live-GDC panel and drift detection"
@@ -1158,7 +1158,7 @@ Expected: `cron.yml valid`.
 
 - [ ] **Step 2: Verify and commit.**
 ```bash
-cd /Users/yaozixi/Desktop/CV/kidney-cancer-multiomics
+cd "$REPO_ROOT"   # the repo checkout; every command below assumes the repo root
 grep -q "Architecture — module contracts" docs/architecture.md && echo "architecture doc OK"
 git add docs/architecture.md
 git commit -q -m "docs: add module-contract architecture reference"
@@ -3044,7 +3044,7 @@ Raw output is committed at `docs/results/module2-run-30718392588.txt`.
 
 This phase is the credibility anchor and is built early (before the survival model). It turns four literature-anchored ccRCC positive controls into a `sanity_results` `targets` object and **real `testthat` assertions** (not just figures): published driver-mutation frequencies (VHL/PBRM1/SETD2/BAP1), BAP1-mutant worse OS, recovery of the four TCGA-KIRC methylation strata (m1–m4), and ccA/ccB expression-signature separation. Each check is a pure `fn_check_*` function in `R/functions_sanity.R` returning a structured pass/fail list; Tasks 3.2–3.5 TDD the check logic on fabricated fixtures, Task 3.6 derives the shared `clinical` target and wires the DAG target on the real Module 1–2 outputs, and Task 3.7 asserts the frozen real results against the published literature.
 
-> All commands run from the repo root `/Users/yaozixi/Desktop/CV/kidney-cancer-multiomics`. Unit tests (3.2–3.5) run on inline fabricated data and always execute in CI; the credibility-anchor block (3.7) reads the frozen `sanity_results` target and executes wherever the `_targets` store is present (locally after `tar_make`, and in CI after the release-asset store restore).
+> All commands run from the repo root the repo root. Unit tests (3.2–3.5) run on inline fabricated data and always execute in CI; the credibility-anchor block (3.7) reads the frozen `sanity_results` target and executes wherever the `_targets` store is present (locally after `tar_make`, and in CI after the release-asset store restore).
 
 > **The `Step N` code blocks below are AS COMMITTED, not first drafts.** This phase is the credibility anchor, so a plan that still specified a superseded body would silently revert the hardening on any replay. Every deviation found while implementing Phase 3 is recorded in the task it belongs to, together with the measurement that motivated it. The `[ FAIL n | PASS n ]` counts in the TDD steps describe replaying a task with only the plan's own assertions in place; the committed `tests/testthat/test-sanity.R` carries substantially more, so the real totals are higher.
 
@@ -5391,7 +5391,7 @@ cat("Uploaded", tarball, "to release", tag, "\n")
 - [ ] **Step 3: Verify (test).** Run:
 
 ```bash
-cd /Users/yaozixi/Desktop/CV/kidney-cancer-multiomics
+cd "$REPO_ROOT"   # the repo checkout; every command below assumes the repo root
 test -f scripts/run_full_pipeline.R \
   && grep -q 'HEAVY_PULL' scripts/run_full_pipeline.R \
   && grep -q 'tar_make' scripts/run_full_pipeline.R \
@@ -5448,7 +5448,7 @@ GDC_FACET_FIELDS <- c(
 - [ ] **Step 2: Write the failing parser test (RED).** Run before the function exists:
 
 ```bash
-cd /Users/yaozixi/Desktop/CV/kidney-cancer-multiomics
+cd "$REPO_ROOT"   # the repo checkout; every command below assumes the repo root
 Rscript -e '
   source("R/constants.R"); source("R/functions_gdc_live.R")
   buckets <- list(list(key = "alive", doc_count = 372L),
@@ -6815,7 +6815,7 @@ This phase adds the GSE159115 scRNA-seq increment on a **separate branch** that 
 
 - [ ] **Step 1: Create the non-blocking branch off the released Modules 0–5 tip.**
   ```bash
-  cd /Users/yaozixi/Desktop/CV/kidney-cancer-multiomics
+  cd "$REPO_ROOT"   # the repo checkout; every command below assumes the repo root
   git checkout -b singlecell
   git branch --show-current
   ```
@@ -7400,7 +7400,7 @@ This phase adds the GSE159115 scRNA-seq increment on a **separate branch** that 
 
 - [ ] **Step 3: Run and confirm FAIL (module absent).**
   ```bash
-  cd /Users/yaozixi/Desktop/CV/kidney-cancer-multiomics
+  cd "$REPO_ROOT"   # the repo checkout; every command below assumes the repo root
   python -m pytest tests/pytest/test_singlecell_qc.py -q
   ```
   Expected output:
@@ -7832,7 +7832,7 @@ This phase adds the GSE159115 scRNA-seq increment on a **separate branch** that 
 
 - [ ] **Step 3: Render the page from the cached store** (single-page render; with the flag OFF it exercises the placeholder path — the CI/release scenario):
   ```bash
-  cd /Users/yaozixi/Desktop/CV/kidney-cancer-multiomics
+  cd "$REPO_ROOT"   # the repo checkout; every command below assumes the repo root
   quarto render dashboard/singlecell.qmd
   ```
   Expected output (tail):
