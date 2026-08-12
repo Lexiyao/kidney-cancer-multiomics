@@ -1,0 +1,199 @@
+---
+title: "MOFA2 Factors"
+format:
+  html:
+    page-layout: full
+---
+
+```{r}
+#| label: setup
+#| include: false
+library(plotly)
+library(ggplot2)
+source("../R/constants.R")
+source("../R/functions_dashboard.R")
+
+# Frozen research targets. fn_dashboard_read() returns NULL when the release
+# asset has not been restored, so this page degrades to stated gaps instead of
+# taking the whole site render down (see R/functions_dashboard.R).
+mofa_varexp     <- fn_dashboard_read("mofa_varexp")
+mofa_factors    <- fn_dashboard_read("mofa_factors")
+factor_platform <- fn_dashboard_read("factor_platform")
+methyl_platform <- fn_dashboard_read("methyl_platform")
+has_store       <- !is.null(mofa_varexp) && !is.null(factor_platform)
+```
+
+::: {.provenance .provenance-frozen}
+[Frozen]{.provenance-label} Every number on this page comes from the **frozen
+`curatedTCGAData` snapshot 20160128 (hg19)**, integrated once and cached in the
+`_targets` store. It **never updates**. The only live-updating numbers in this
+project are on the [Live GDC](live-gdc.qmd) page, and frozen-snapshot counts do
+not match the current GDC portal in either direction.
+:::
+
+## Read this before reading any factor
+
+MOFA2 was fitted on three views — log-transformed normalised RNA, merged
+HM27∪HM450 methylation M-values, and GISTIC-thresholded CNV — over the
+**524-case** main cohort. Mutation is *not* a view; it is an external label used
+only to interpret factors.
+
+The methylation view is `cbind(HM27, HM450)` on common CpGs with **no batch
+correction**, and the cohort splits **HM27 214 / HM450 310**. Several factors
+are therefore substantially the assay split rather than biology. Every factor
+below is shown with its measured rank-biserial AUC against that split
+(0.5 = no platform information, BH-adjusted across the 15 factors); a factor
+with `q ≤ 0.05` is marked [CONFOUNDED by assay]{.verdict-red} and must not be
+read as a biological axis.
+
+**The same merge fails a literature positive control, and this is the page the
+rest of the site sends you to for the confound — so it says so here rather than
+only on the [Dashboard](dashboard.qmd).** The m1–m4 methylation-strata anchor is
+[RED]{.verdict-red} on this snapshot: the merged 4-means partition tracks the
+assay at ARI **0.583** against a 0.25 veto, and the within-platform silhouettes
+(HM27 0.0858, HM450 0.0489) are *both below* the merged 0.1197, so the merge
+manufactures the structure rather than diluting it. It is pinned as an expected
+red — a *new* red fails the job, and an m1–m4 anchor that starts passing fails it
+too. See the [Dashboard](dashboard.qmd) red-light card.
+
+Only [Factor1 and Factor4]{.verdict-green} are wired as survival predictors, and
+they were chosen **outcome-blind** — on platform-cleanliness and variance
+explained alone. Choosing factors on survival association would bias the model
+and is forbidden.
+
+```{r}
+#| label: platform-table
+#| echo: false
+if (!has_store) {
+  htmltools::div(
+    class = "pending-note",
+    fn_dashboard_pending("the per-factor variance and platform-AUC table")
+  )
+} else {
+  labs <- fn_factor_platform_labels(rownames(mofa_varexp), factor_platform)
+  ve <- round(as.data.frame(mofa_varexp[labs$factor, , drop = FALSE]), 2)
+  names(ve) <- paste0(names(ve), " var %")
+  knitr::kable(
+    data.frame(
+      Factor         = labs$factor,
+      ve,
+      `Platform AUC` = round(labs$auc, 3),
+      `BH q`         = signif(labs$q_value, 3),
+      # fn_verdict_span() + escape = FALSE: the prose above shows CONFOUNDED as
+      # [CONFOUNDED by assay]{.verdict-red}, and an unstyled verdict column
+      # under it would say the opposite of what that sentence promises.
+      Verdict        = fn_verdict_span(labs$verdict),
+      `Survival predictor` =
+        ifelse(labs$factor %in% PLATFORM_CLEAN_MOFA_FACTORS, "yes", "no"),
+      check.names = FALSE, stringsAsFactors = FALSE
+    ),
+    escape = FALSE, row.names = FALSE
+  )
+}
+```
+
+## Variance explained per omics view, per factor
+
+Each factor is a shared axis of variation; the heatmap shows how much variance
+it explains in each view. The row labels carry the platform AUC, so a
+methylation-heavy row cannot be read without its confound.
+
+```{r}
+#| label: varexp
+if (!has_store) {
+  htmltools::div(
+    class = "pending-note",
+    fn_dashboard_pending("the variance-explained heatmap")
+  )
+} else {
+  labs <- fn_factor_platform_labels(rownames(mofa_varexp), factor_platform)
+  ve_long <- data.frame(
+    factor   = rep(labs$label, times = ncol(mofa_varexp)),
+    view     = rep(colnames(mofa_varexp), each = nrow(mofa_varexp)),
+    variance = as.numeric(mofa_varexp),
+    stringsAsFactors = FALSE
+  )
+  # Factor1 at the top, Factor15 at the bottom: the label order, not
+  # alphabetical order, which would put Factor10 second.
+  ve_long$factor <- factor(ve_long$factor, levels = rev(labs$label))
+  p_var <- ggplot(ve_long, aes(x = view, y = factor, fill = variance)) +
+    geom_tile(colour = "white") +
+    scale_fill_viridis_c(name = "Var. (%)") +
+    labs(x = "Omics view", y = "MOFA factor  [platform AUC, verdict]") +
+    theme_minimal(base_size = 11)
+  ggplotly(p_var)
+}
+```
+
+## Sample scores: a clean axis against a confounded one
+
+`Factor1` (platform-clean) is plotted against `Factor2` (the most
+platform-loaded factor), **coloured by methylation assay**. If the two colours
+separate along the x-axis, that separation is the assay, not the disease. This
+plot exists to make the confound visible rather than to hide it — which is why
+`Factor2` appears here and nowhere in the survival model.
+
+```{r}
+#| label: scores
+if (is.null(mofa_factors) || is.null(methyl_platform)) {
+  htmltools::div(
+    class = "pending-note",
+    fn_dashboard_pending("the factor-score scatter")
+  )
+} else {
+  ids <- rownames(mofa_factors)
+  df <- data.frame(
+    Factor1  = mofa_factors[, "Factor1"],
+    Factor2  = mofa_factors[, "Factor2"],
+    platform = as.character(methyl_platform[ids]),
+    stringsAsFactors = FALSE
+  )
+  plot_ly(df, x = ~Factor1, y = ~Factor2, color = ~platform,
+          colors = DASHBOARD_PLATFORM_COLOURS,
+          type = "scatter", mode = "markers",
+          marker = list(size = 6, opacity = 0.7)) |>
+    layout(xaxis = list(title = "Factor 1 (platform-clean)"),
+           yaxis = list(title = "Factor 2 (CONFOUNDED by assay)"),
+           legend = list(title = list(text = "Methylation assay")))
+}
+```
+
+## What the factors track — and what that is worth
+
+```{r}
+#| label: mutation-annot
+#| echo: false
+mfa <- fn_dashboard_read("mutation_factor_annot")
+if (is.null(mfa)) {
+  htmltools::div(
+    class = "pending-note",
+    fn_dashboard_pending("the factor-vs-driver-mutation association table")
+  )
+} else {
+  top <- head(mfa[order(mfa$q_value), ], 10)
+  knitr::kable(top, row.names = FALSE, digits = 4)
+}
+```
+
+Driver-mutation status (n = 417 subset) was tested against every factor as an
+**external label**. Exactly **one** association survives BH correction:
+**BAP1 ↔ Factor14, q = 0.004**. Both halves of that sentence matter:
+
+- it is a real, corrected association, and it is the only one; **and**
+- **Factor14 is a minor axis** — it explains 0.22 % of RNA, 0.31 % of
+  methylation and 1.91 % of CNV variance. A significant association with a
+  factor that explains almost nothing is a weak result, not a headline. Factor14
+  also carries some platform signal itself (AUC 0.578, q 0.0046).
+
+So this is reported as "the mutation signal that exists is confined to a minor
+axis", never as "MOFA recovered BAP1 biology".
+
+::: {.dashboard-note}
+Factors are the frozen MOFA2 output; mutation status (BAP1/PBRM1) is used only
+to *interpret* which factor it tracks — mutation is never a MOFA view. Recorded
+values for the platform diagnostic are committed at
+`docs/results/platform-diagnosis-run-30911448546.txt` (run 30911448546) and for
+the factor/variance/mutation tables at
+`docs/results/module2-run-30718392588.txt` (run 30718392588); this page renders
+the same quantities live from the store rather than restating them.
+:::

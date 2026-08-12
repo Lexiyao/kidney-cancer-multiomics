@@ -1,9 +1,218 @@
 ---
-title: "Dashboard"
+title: "KIRC Multi-Omics Dashboard"
+format:
+  dashboard:
+    theme: cosmo
+    css: styles.css
+    orientation: rows
+    nav-buttons:
+      - icon: github
+        href: https://github.com/Lexiyao/kidney-cancer-multiomics
 ---
 
-## Interactive dashboard (scaffold)
+```{r}
+#| label: setup
+#| include: false
+library(plotly)
+library(ggplot2)
+library(survival)
+source("../R/constants.R")
+source("../R/functions_dashboard.R")
 
-Module 5 fills this page with Plotly views: MOFA2 subtypes, survival curves,
-factor loadings, gene views, and the live-GDC panel. This Phase 0 page renders
-without R so the Pages deploy is green before the pipeline exists.
+# Frozen research targets. fn_dashboard_read() returns NULL when the
+# `targets-store` release asset has not been restored, so every card below
+# degrades to a stated gap rather than taking the site render down.
+subtypes_df      <- fn_dashboard_read("subtypes_df")
+km_src           <- fn_dashboard_read("km_subtype_df")
+survival_metrics <- fn_dashboard_read("survival_metrics")
+bap1_auroc       <- fn_dashboard_read("bap1_auroc")
+concordance      <- fn_dashboard_read("concordance")
+sanity_table     <- fn_dashboard_read("sanity_table")
+rna_mat          <- fn_dashboard_read("rna_mat")
+```
+
+## Row {height=14%}
+
+::: {.card title="Every number on this page is FROZEN"}
+All figures here come from the **frozen `curatedTCGAData` snapshot 20160128
+(hg19)**, integrated once and cached in the `_targets` store. They **never
+update** — a weekly re-run reproduces them byte-for-byte. The project's only
+live-updating numbers are on the [Live GDC](live-gdc.qmd) page, and a
+frozen-snapshot count is **not** interchangeable with a current GDC portal
+count: the two differ materially in both directions.
+:::
+
+## Row {height=22%}
+
+```{r}
+#| content: valuebox
+#| title: "Cohort n — FROZEN snapshot (RNA ∩ Methyl ∩ CNV)"
+fn_dashboard_valuebox(
+  if (is.null(subtypes_df)) NULL else nrow(subtypes_df),
+  icon = "people", colour = "primary", fmt = "%d"
+)
+```
+
+```{r}
+#| content: valuebox
+#| title: "Survival C-index (held-out, Cox)"
+fn_dashboard_valuebox(survival_metrics$cindex$cox,
+                      icon = "activity", colour = "info")
+```
+
+```{r}
+#| content: valuebox
+#| title: "BAP1-from-expression AUROC (held-out)"
+fn_dashboard_valuebox(bap1_auroc$heldout_auroc,
+                      icon = "cpu", colour = "success")
+```
+
+```{r}
+#| content: valuebox
+#| title: "MOFA vs SNF concordance (ARI)"
+fn_dashboard_valuebox(concordance$ari,
+                      icon = "diagram-3", colour = "secondary", fmt = "%.2f")
+```
+
+## Row {height=32%}
+
+### Column {width=40%}
+
+```{r}
+#| title: "MOFA subtype sizes (frozen)"
+if (is.null(subtypes_df)) {
+  htmltools::div(class = "pending-note",
+                 fn_dashboard_pending("the MOFA subtype sizes"))
+} else {
+  tab <- as.data.frame(table(subtype = subtypes_df$subtype))
+  plot_ly(tab, x = ~subtype, y = ~Freq, type = "bar",
+          marker = list(color = DASHBOARD_ACCENT)) |>
+    layout(xaxis = list(title = "MOFA subtype"),
+           yaxis = list(title = "Samples"))
+}
+```
+
+### Column {width=60%}
+
+```{r}
+#| title: "Overall survival by MOFA subtype — DESCRIPTIVE, not a model output"
+if (is.null(km_src)) {
+  htmltools::div(class = "pending-note",
+                 fn_dashboard_pending("the Kaplan-Meier curves by subtype"))
+} else {
+  km <- survfit(Surv(time, status) ~ subtype, data = km_src)
+  plot_ly(fn_km_curve_df(km), x = ~time, y = ~surv, color = ~strata,
+          type = "scatter", mode = "lines", line = list(shape = "hv")) |>
+    layout(xaxis = list(title = "Time (days)"),
+           yaxis = list(title = "Overall survival", range = c(0, 1)))
+}
+```
+
+## Row {height=32%}
+
+### Column {.tabset width=60%}
+
+```{r}
+#| title: "Driver-gene expression by subtype"
+# `rna_mat` is the top-5000-variable slice, so a driver gene can be absent from
+# it. An empty selection used to reach facet_wrap() and abort the whole site
+# render ("Faceting variables must have at least one value."), and a partial one
+# used to be shown without saying what was missing. Both cases are decided by
+# fn_driver_gene_frame() and covered by tests/testthat/test-dashboard.R, because
+# neither is reachable in a render without the store.
+if (is.null(rna_mat) || is.null(subtypes_df)) {
+  htmltools::div(class = "pending-note",
+                 fn_dashboard_pending("the driver-gene expression view"))
+} else {
+  gd <- fn_driver_gene_frame(rna_mat, subtypes_df)
+  if (nrow(gd$frame) == 0L) {
+    htmltools::div(class = "pending-note", fn_driver_gene_gap(gd))
+  } else {
+    p_gene <- ggplot(gd$frame, aes(x = subtype, y = expr, fill = subtype)) +
+      geom_boxplot(outlier.size = 0.4) +
+      facet_wrap(~gene, scales = "free_y") +
+      labs(x = "MOFA subtype", y = "log2(x+1) normalised expression") +
+      theme_minimal(base_size = 10) +
+      theme(legend.position = "none")
+    gap_note <- fn_driver_gene_note(gd$dropped)
+    htmltools::tagList(
+      ggplotly(p_gene),
+      if (is.null(gap_note)) NULL else {
+        htmltools::div(class = "dashboard-note", gap_note)
+      }
+    )
+  }
+}
+```
+
+```{r}
+#| title: "Positive controls — including the one that FAILS"
+if (is.null(sanity_table)) {
+  htmltools::div(class = "pending-note",
+                 fn_dashboard_pending("the positive-control results table"))
+} else {
+  # fn_pass_span() + escape = FALSE, exactly as index.qmd renders the SAME
+  # table. Plain "FAIL (RED)" body text on this card is how the m1-m4 red light
+  # stops looking like a red light (dashboard/styles.css states the rule).
+  knitr::kable(
+    data.frame(
+      Check    = sanity_table$check,
+      Verdict  = fn_pass_span(sanity_table$passed),
+      Evidence = sanity_table$detail,
+      check.names = FALSE, stringsAsFactors = FALSE
+    ),
+    escape = FALSE, row.names = FALSE
+  )
+}
+```
+
+```{r}
+#| title: "What is NOT on this page"
+#| echo: false
+htmltools::div(
+  class = "dashboard-note",
+  htmltools::HTML(paste0(
+    "<p>The value boxes above carry no confidence intervals and no ",
+    "<em>p</em>-values, because at this cohort size an interval is the honest ",
+    "half of every one of them. Read them with the qualifications on the ",
+    "<a href='survival.qmd'>Survival</a> and ",
+    "<a href='factors.qmd'>MOFA Factors</a> pages, not on their own.</p>",
+    "<p>Nothing here is filled in when the frozen store is missing: a card ",
+    "with no store prints a stated gap. If a number is visible, the pipeline ",
+    "produced it.</p>"
+  ))
+)
+```
+
+### Column {width=40%}
+
+::: {.card title="Read the red light before the value boxes"}
+**The m1–m4 methylation-strata positive control FAILS, and it stays failing
+here.** `methyl_mat` is `cbind(HM27, HM450)` on common CpGs with **no batch
+correction** (cohort split HM27 214 / HM450 310), and the adjusted Rand index
+against the assay split is **0.583** versus a 0.25 veto. Worse for the
+optimistic reading: the strata are *not* recovered inside a single platform
+either — within-arm 4-means silhouettes are HM27 0.0858 and HM450 0.0489,
+**below** the merged 0.1197 — so the merge manufactures the apparent structure
+rather than diluting real structure. No batch correction was applied and none
+will be (only 3 cases overlap the platforms; the probe sets differ).
+
+**What survives that.** The MOFA *subtypes* are platform-clean (ARI 0.0058
+against the assay split), so the subtype views above are not pictures of the
+confound. Mutation frequencies (VHL 44.8 %, PBRM1 30.5 %, SETD2 10.1 %,
+BAP1 8.6 %) and ccA/ccB separation (rho −0.354) touch no methylation matrix at
+all and PASS.
+
+**The BAP1 survival control passes its direction test and is underpowered.**
+HR 1.584 (95 % CI 0.967–2.595, *p* = 0.068). Roughly 470 events would be needed
+for 80 % power; the mutation subset supplies **147, of which 18 are in the
+mutant arm** — recorded by run 31375702141, not inferred from the interval.
+That is neither a confirmation nor a negative finding, and it is not reported
+as either.
+
+**The held-out C-index is not fully out-of-sample.** MOFA was fitted on all 524
+cases, including the rows later held out, so the latent axes were defined with
+the test rows contributing. MOFA never sees an outcome — this is transductive
+optimism, not label leakage — but the figure bounds the supervised component
+only, and there is no external validation cohort.
+:::

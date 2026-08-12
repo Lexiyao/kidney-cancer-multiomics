@@ -1,11 +1,77 @@
-:root {
-  --brand: #2c6e91;
+:root { --kirc-accent: #2c6e91; }
+
+.dashboard-note {
+  font-size: 0.85rem;
+  color: #666;
+  border-left: 3px solid var(--kirc-accent);
+  padding-left: 0.6rem;
+  margin: 0.8rem 0;
 }
 
-.navbar {
-  border-bottom: 2px solid var(--brand);
+table { font-size: 0.9rem; }
+h2 { color: var(--kirc-accent); }
+.valuebox-title { font-weight: 600; }
+
+/* --- Provenance banners (spec section 9) ------------------------------------
+   Every page that shows a number must say which of the TWO sources it came
+   from: the FROZEN 2016 curatedTCGAData snapshot (20160128, hg19), which never
+   updates, or the LIVE GDC REST API panel, which the weekly cron refreshes.
+   Frozen snapshot counts and current-portal counts differ materially in both
+   directions, so a reader who cannot tell them apart will quote the wrong one.
+   These two classes exist so the distinction is visual, not buried in prose. */
+.provenance {
+  border-radius: 4px;
+  padding: 0.55rem 0.8rem;
+  margin: 0.9rem 0 1.4rem;
+  font-size: 0.85rem;
+  line-height: 1.45;
 }
 
-h2 {
-  color: var(--brand);
+.provenance-frozen {
+  background: #eef3f7;
+  border-left: 5px solid var(--kirc-accent);
+}
+
+.provenance-live {
+  background: #fff6e5;
+  border-left: 5px solid #d08700;
+}
+
+.provenance-label {
+  display: inline-block;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-right: 0.4rem;
+}
+
+/* --- Verdict styling --------------------------------------------------------
+   A failing positive control and a platform-confounded factor must LOOK
+   failing. The m1-m4 anchor is RED and stays red on the site; styling it the
+   same as a passing row is how a negative result gets laundered into a
+   positive one. */
+.verdict-red {
+  color: #a11;
+  font-weight: 700;
+}
+
+.verdict-green {
+  color: #1a7f37;
+  font-weight: 700;
+}
+
+.verdict-pending {
+  color: #6a5000;
+  font-weight: 700;
+}
+
+/* A number the pipeline has not produced in THIS render. Never filled with a
+   plausible value; the gap is shown as a gap. */
+.pending-note {
+  background: #fdf6e3;
+  border: 1px dashed #b58900;
+  border-radius: 4px;
+  padding: 0.55rem 0.8rem;
+  margin: 0.9rem 0;
+  font-size: 0.85rem;
 }

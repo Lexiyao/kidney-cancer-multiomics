@@ -104,6 +104,95 @@ jobs:
       - name: Run testthat on fixtures (no full pipeline)
         run: Rscript tests/testthat.R
 
+  # Nothing on push or PR proved the five .qmd pages still RENDER. pages.yml is
+  # the only file that renders and it is workflow_dispatch-only; cron.yml
+  # deliberately does not dispatch it; verify-module2.yml does not render. So a
+  # broken page was discovered at manual publish time, which is how a defect
+  # that aborts the whole render on the store-present path sat undetected in
+  # dashboard.qmd (facet_wrap over an empty driver-gene selection).
+  #
+  # This job renders BOTH branches, because they are different code paths and
+  # only one of them is reachable without a store:
+  #   1. no store  -> every page must degrade to stated gaps;
+  #   2. fixture store -> every page must render its figures, with NO gaps left.
+  #
+  # It is a SEPARATE job on purpose. `tests/testthat.R` refuses to skip the
+  # store-backed literature anchors against a populated store (by design -- a
+  # skip that never lifts is a defect), so a fixture store sitting in the
+  # workspace during the r-checks job would make 7 real-data anchors ERROR
+  # against synthetic values. Different job, different workspace, no ordering
+  # hazard.
+  #
+  # This does NOT restore the release asset and it is NOT reproduction: the
+  # fixture store holds invented stand-ins, and nothing rendered here is
+  # published. Its whole job is that the pages execute.
+  render-smoke:
+    runs-on: ubuntu-latest
+    env:
+      HEAVY_PULL: "false"
+      RENV_CONFIG_AUTOLOADER_ENABLED: "false"
+      R_PROFILE_USER: /dev/null
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: '4.6.1'
+          use-public-rspm: true
+
+      - uses: quarto-dev/quarto-actions/setup@v2
+
+      # Deliberately the SAME list as pages.yml, including `rmarkdown` (the
+      # knitr engine's own dependency, not a page's). Keeping them identical is
+      # what makes this job a smoke test of the Pages package list too -- a
+      # missing entry there used to surface only on a manual dispatch, after
+      # the release-asset download had already succeeded.
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          packages: |
+            any::targets
+            any::plotly
+            any::ggplot2
+            any::survival
+            any::knitr
+            any::rmarkdown
+            any::htmltools
+            any::httr
+
+      - name: Render all five pages with NO store (the degradation branch)
+        run: |
+          set -euxo pipefail
+          test ! -f _targets/meta/meta
+          quarto render dashboard
+          for p in index dashboard factors survival live-gdc; do
+            test -f "_site/$p.html"
+            # Without the store every page MUST show stated gaps. Zero gaps here
+            # would mean a card silently rendered something it had no data for.
+            grep -q 'class="pending-note' "_site/$p.html"
+          done
+
+      - name: Render again against a fixture store (the store-present branch)
+        run: |
+          set -euxo pipefail
+          Rscript -e 'targets::tar_make(script = "scripts/fixture_store_pipeline.R", store = "_targets")'
+          rm -rf _site
+          quarto render dashboard
+          for p in index dashboard factors survival live-gdc; do
+            test -f "_site/$p.html"
+            # With every target available NOTHING may still be pending: a gap
+            # here is a page failing to read a target the store holds.
+            if grep -q 'class="pending-note' "_site/$p.html"; then
+              echo "::error::$p.html still shows a stated gap with a full store"
+              exit 1
+            fi
+          done
+
+      # The fixture store holds invented values. It must not survive the job,
+      # be cached, or be mistaken for a restored release asset.
+      - name: Delete the fixture store
+        if: always()
+        run: rm -rf _targets/meta _targets/objects _targets/user _site
+
   py-checks:
     runs-on: ubuntu-latest
     env:

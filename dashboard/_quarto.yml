@@ -1,18 +1,31 @@
 project:
   type: website
-  output-dir: _site
+  output-dir: ../_site
+  execute-dir: file            # cwd = dashboard/, so the _targets store is ../_targets
 
 website:
-  title: "Kidney Cancer Multi-Omics"
+  title: "Kidney Cancer Multi-Omics (TCGA-KIRC)"
+  description: "Reproducible somatic multi-omics integration on TCGA-KIRC."
   navbar:
     left:
       - href: index.qmd
         text: Home
       - href: dashboard.qmd
         text: Dashboard
+      - href: factors.qmd
+        text: MOFA Factors
+      - href: survival.qmd
+        text: Survival
+      - href: live-gdc.qmd
+        text: Live GDC
+    right:
+      - icon: github
+        href: https://github.com/Lexiyao/kidney-cancer-multiomics
 
 format:
   html:
     theme: cosmo
     css: styles.css
     toc: true
+    code-fold: true
+    code-tools: true

@@ -1,0 +1,179 @@
+---
+title: "Survival"
+format:
+  html:
+    page-layout: full
+---
+
+```{r}
+#| label: setup
+#| include: false
+library(plotly)
+library(survival)
+source("../R/constants.R")
+source("../R/functions_dashboard.R")
+
+# Frozen research targets; NULL when the release-asset store has not been
+# restored, in which case each section prints a stated gap instead of a number.
+km_src           <- fn_dashboard_read("km_subtype_df")
+survival_metrics <- fn_dashboard_read("survival_metrics")
+cox_fit          <- fn_dashboard_read("cox_fit")
+```
+
+::: {.provenance .provenance-frozen}
+[Frozen]{.provenance-label} Every number on this page comes from the **frozen
+`curatedTCGAData` snapshot 20160128 (hg19)**. Outcomes, follow-up and the fitted
+model **never update**; a weekly cron re-running this would reproduce it
+byte-for-byte. The only live-updating numbers in the project are on the
+[Live GDC](live-gdc.qmd) page.
+:::
+
+## What is being fitted
+
+A deliberately **low-dimensional** overall-survival model:
+`Factor1`, `Factor4`, `age_years`, `stage_num`, `platform`. Five terms — well
+inside the EPV-10 budget the observed event count licenses, and never
+genome-wide feature selection.
+
+`Factor1` and `Factor4` were chosen **outcome-blind**, on platform-cleanliness
+(BH `q > 0.05` against the HM27/HM450 split) and variance explained only. The
+two largest methylation-loaded factors, `Factor2` (AUC 0.888) and `Factor5`
+(0.818), are substantially the assay split and are **excluded**; `platform`
+enters instead as an explicit adjustment covariate. See
+[MOFA Factors](factors.qmd). Selecting factors on survival association would
+bias the model and is forbidden.
+
+The same assay merge also fails a literature positive control: the m1–m4
+methylation-strata anchor is [RED]{.verdict-red} (cluster-vs-platform ARI 0.583
+against a 0.25 veto) and stays red. See the [Dashboard](dashboard.qmd) red-light
+card.
+
+```{r}
+#| label: model-size
+#| echo: false
+if (is.null(cox_fit)) {
+  htmltools::div(
+    class = "pending-note",
+    fn_dashboard_pending("the train/test split, event counts and EPV budget")
+  )
+} else {
+  knitr::kable(fn_cox_fit_summary(cox_fit), col.names = c("", ""),
+               row.names = FALSE)
+}
+```
+
+## Kaplan–Meier overall survival by MOFA subtype
+
+**Descriptive only.** The Cox model above has **no `subtype` term**, so these
+curves are not the model's output and no *p*-value from them is a model result.
+They are built from the `km_subtype_df` join, not from the fitted object. The
+MOFA subtypes are, at least, platform-clean (ARI 0.0058 against the assay
+split), so this particular figure is not a picture of the confound.
+
+```{r}
+#| label: km
+if (is.null(km_src)) {
+  htmltools::div(
+    class = "pending-note",
+    fn_dashboard_pending("the Kaplan-Meier curves by MOFA subtype")
+  )
+} else {
+  km <- survfit(Surv(time, status) ~ subtype, data = km_src)
+  # fn_km_curve_df() is shared with dashboard.qmd so the two pages cannot draw
+  # the same curves from two slightly different expansions of the same fit.
+  plot_ly(fn_km_curve_df(km), x = ~time, y = ~surv, color = ~strata,
+          type = "scatter", mode = "lines",
+          line = list(shape = "hv")) |>
+    layout(xaxis = list(title = "Time (days)"),
+           yaxis = list(title = "Overall survival", range = c(0, 1)))
+}
+```
+
+## Model evaluation (reused model-evaluation-from-scratch)
+
+The **held-out** C-index is the number to read. The **optimism** column beside
+it — apparent (training) minus held-out — is *reported, not subtracted away*:
+the factors and subtypes were derived from the same omics the model is fitted
+on, so the apparent figure is optimistic by construction and the size of that
+gap is itself the finding. Only the Cox arm has an optimism estimate; the other
+rows are left blank rather than borrowing it.
+
+```{r}
+#| label: metrics
+#| echo: false
+if (is.null(survival_metrics)) {
+  htmltools::div(
+    class = "pending-note",
+    fn_dashboard_pending(paste(
+      "the held-out C-index (Cox / penalised Cox / RSF) and the Cox optimism"
+    ))
+  )
+} else {
+  ct <- fn_survival_cindex_table(survival_metrics)
+  knitr::kable(
+    data.frame(
+      Model                          = ct$arm,
+      `Held-out C-index`             = round(ct$heldout, 3),
+      `Optimism (apparent - held-out)` = round(ct$optimism, 3),
+      `Apparent (training) C-index`  = round(ct$apparent, 3),
+      check.names = FALSE, stringsAsFactors = FALSE
+    ),
+    row.names = FALSE
+  )
+}
+```
+
+::: {.provenance .provenance-frozen}
+[Caveat]{.provenance-label} **The held-out C-index is not fully out-of-sample
+either, and that is stated here rather than in a footnote.** `mofa_factors` was
+fitted by MOFA2 on **all 524 cases** — the same rows the train/test split later
+calls TEST — so the latent axes the model is built on were defined with the
+held-out rows contributing. MOFA never sees an outcome, so this is **not a label
+leak** and the non-circularity claim stands; it is **unsupervised-transductive
+optimism**. The figure above therefore bounds the **supervised component only**.
+A fully out-of-sample estimate would require refitting MOFA (and the
+top-variable-gene filter) inside every training split, which is out of scope at
+this cohort size. There is also **no external validation cohort**.
+:::
+
+## Calibration at the 5-year horizon
+
+Predicted 5-year survival against observed, from `basehaz(centered = TRUE)` and
+the linear predictor on one shared centring. Points on the dotted line are
+well-calibrated; systematic departure from it is a miscalibrated model, and it
+is shown whichever way it falls.
+
+```{r}
+#| label: calibration
+if (is.null(survival_metrics) || is.null(survival_metrics$calibration)) {
+  htmltools::div(
+    class = "pending-note",
+    fn_dashboard_pending("the 5-year calibration curve")
+  )
+} else {
+  plot_ly(survival_metrics$calibration, x = ~predicted, y = ~observed,
+          type = "scatter", mode = "markers+lines",
+          marker = list(color = DASHBOARD_ACCENT)) |>
+    add_lines(x = c(0, 1), y = c(0, 1),
+              line = list(dash = "dot", color = "grey"),
+              showlegend = FALSE) |>
+    layout(xaxis = list(title = "Predicted 5-year survival", range = c(0, 1)),
+           yaxis = list(title = "Observed",                  range = c(0, 1)))
+}
+```
+
+::: {.dashboard-note}
+**Limitations, stated on the page that would otherwise oversell.** Effective *n*
+is set by modality intersection — 524 for the main RNA + Methylation + CNV
+cohort, 413 once mutation annotation is required, 241 if HM450 is demanded
+instead of the merged platforms; survival runs on the main cohort, with **519 of
+the 524 cases reaching the fit** (171 OS events, 32.9 %) — the same 519 the
+train 364 / held-out 155 split in the table above sums to.
+**Events, not *n*, bound the model**, which is why it stays at five terms under
+the EPV-10 rule. The BAP1 survival positive control is *directionally*
+consistent with the literature (HR 1.584, 95% CI 0.967–2.595, *p* = 0.068) but
+**underpowered by construction** — roughly 470 events would be needed for 80%
+power, and the mutation subset records **147, 18 of them in the mutant arm**
+(run 31375702141), about 3.2× short — so it is reported as neither a
+confirmation nor a negative finding. Full limitations in the README.
+:::

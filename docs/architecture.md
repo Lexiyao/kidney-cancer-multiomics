@@ -33,9 +33,10 @@
 
 ## Measured status (not aspiration)
 
-Measured by GitHub Actions run 30708943504, 2026-08-01, in
-`bioconductor/bioconductor_docker:RELEASE_3_23` against the frozen
-curatedTCGAData 2.0.1 KIRC snapshot 20160128.
+Measured by GitHub Actions runs 30708943504 (2026-08-01), 30718392588 and
+31375702141 (2026-08-10), all in `bioconductor/bioconductor_docker:RELEASE_3_23`
+against the frozen curatedTCGAData 2.0.1 KIRC snapshot 20160128. Each bullet
+names the run it comes from; nothing here is claimed without one.
 
 - **Module 1 is fully materialised on the real snapshot** (`tar_make` with
   `HEAVY_PULL=true`, all targets built): `cohort_n` = 524; `rna_mat` 5000 × 524;
@@ -49,5 +50,26 @@ curatedTCGAData 2.0.1 KIRC snapshot 20160128.
   the cap.
 - **`renv.lock` is a complete, measured 218-package lock** — resolved from a
   real install, not partial or hand-authored.
-- **Not yet done:** the survival model has NOT been fitted, and Module 2
-  (MOFA2 integration) has NOT been run. Modules 2–6 remain unmaterialised.
+- **Module 2 is built on real data** (run 30718392588): MOFA2 trained on the
+  three views, 15 factors on n = 524; subtypes S1 20 / S2 306 / S3 76 / S4 122;
+  MOFA-vs-SNF concordance ARI **0.351** (moderate, not high). Raw output at
+  `docs/results/module2-run-30718392588.txt`.
+- **Module 3 anchors have run** (run 31375702141): four of the five literature
+  checks PASS; `methyl_strata` (m1–m4) is **RED** and stays red — it carries the
+  suite's only 2 red expectations, in 2 anchor tests, out of 203. Pinned as an
+  expected failure: a new red fails the job, and an m1–m4 anchor that starts
+  passing fails it too.
+- **Module 4 is fitted on real data** (run 31375702141): survival frame 519
+  rows, 171 OS events (32.9 %), train 364 / test 155 with 124 training events →
+  measured EPV-10 cap 12, 5 predictors used. Held-out C-index Cox **0.7486**
+  (penalised 0.7492, RSF 0.7524), Cox optimism 0.0125; BAP1-from-expression
+  AUROC **0.960** held-out on n = 413 with 36 mutants. In that fit only
+  `stage_num` and `age_years` are significant, so the C-index is a
+  stage-and-age model — see README.md before quoting it. Raw output at
+  `docs/results/module4-run-31375702141.txt`.
+- **Module 5 is built and rendering, and is NOT published.** Five Quarto pages
+  render from the cached store; `.github/workflows/pages.yml` is
+  `workflow_dispatch`-only on purpose, so no site is deployed.
+- **Not yet done:** Module 6 (single-cell GSE159115 + the ESTIMATE purity gate)
+  is **NOT BUILT** — no code for it exists in this repository, and no
+  single-cell or purity claim is made anywhere.

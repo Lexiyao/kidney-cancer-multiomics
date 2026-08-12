@@ -528,5 +528,102 @@ list(
     # conversion for a convert = FALSE session without making the default
     # session error on a value that is already converted.
     if (inherits(res, "python.builtin.object")) reticulate::py_to_r(res) else res
-  }, packages = c(tar_option_get("packages"), "reticulate"))
+  }, packages = c(tar_option_get("packages"), "reticulate")),
+
+  # --- Module 5: live GDC panel (independent of frozen research core) ---------
+  # THE ONLY TARGET IN THIS DAG THAT IS NOT FROZEN. Everything above descends
+  # from the curatedTCGAData 20160128 snapshot and is byte-stable across runs;
+  # this one re-queries api.gdc.cancer.gov and legitimately changes. It shares
+  # NO edge with any research target, which is the point: the "regularly updated
+  # tool" claim (spec section 9) is scoped to this panel and nothing else. Any
+  # page rendering it must label it live, with `retrieved_at`, and must never
+  # let a reader take `total_cases` for the frozen cohort's n.
+  #
+  # `packages` is declared here rather than inherited, for the same reason
+  # MOFA2/reticulate are declared per-target above: the global default attaches
+  # MultiAssayExperiment, and the weekly cron (.github/workflows/cron.yml)
+  # builds THIS TARGET AND NOTHING ELSE. Inheriting the default would force a
+  # Bioconductor install into a job whose entire work is one HTTPS request, and
+  # would make the panel refresh fail for a reason that has nothing to do with
+  # the panel. httr is all fn_query_gdc() touches.
+  tar_target(
+    gdc_live_panel,
+    fn_query_gdc(),
+    packages = "httr",
+    cue = tar_cue(mode = "always")   # always re-query so the panel truly updates
+  ),
+
+  # --- Module 5: tidy consumption targets for the dashboard -------------------
+  # The .qmd pages need rectangular, join-ready shapes. Module 2 emits
+  # `subtypes_mofa` as a NAMED FACTOR, Module 3 emits `sanity_results` as a
+  # NESTED NAMED LIST, and Module 4's Cox model has NO `subtype` term — so these
+  # helper targets adapt those outputs once, here, rather than in every page.
+  tar_target(
+    subtypes_df,
+    data.frame(
+      sample_id = names(subtypes_mofa),
+      subtype   = unname(as.character(subtypes_mofa)),
+      stringsAsFactors = FALSE
+    )
+  ),
+  tar_target(
+    km_subtype_df,
+    {
+      merged <- merge(
+        survival_df[, c("sample_id", "time", "status")],
+        subtypes_df,
+        by = "sample_id"
+      )
+      merged[!is.na(merged$subtype), , drop = FALSE]
+    }
+  ),
+  tar_target(
+    sanity_table,
+    do.call(rbind, lapply(names(sanity_results), function(nm) {
+      el <- sanity_results[[nm]]
+      data.frame(
+        check  = if (!is.null(el$label))  el$label  else nm,
+        passed = isTRUE(el$pass),
+        # DEVIATION FROM THE PLAN, deliberately. The plan takes the element's
+        # own `detail` field and falls back to an empty string.
+        # NO element of `sanity_results` has a `detail` field, so every row
+        # of the landing-page table would render blank. Two rows cannot survive
+        # that: BAP1 survival passes its `hr > 1` criterion while being
+        # UNDERPOWERED, and m1-m4 fails for a reason `fn_check_methyl_strata`
+        # already wrote out in `$message`. A blank cell next to a green tick is
+        # how an underpowered result gets read as a confirmation.
+        detail = fn_sanity_detail(el),
+        stringsAsFactors = FALSE
+      )
+    }))
+  ),
+
+  # --- Module 5: render the full Quarto site from the frozen store ------------
+  # The .qmd pages do NOT receive these objects as arguments; each reads the
+  # store itself through fn_dashboard_read() (`../_targets`, because
+  # `execute-dir: file` puts a page's working directory in dashboard/). Naming
+  # the symbols here is what creates the DAG edges, so an upstream change
+  # re-renders the site instead of leaving a stale page beside a fresh one.
+  #
+  # LONGER THAN THE PLAN'S LIST, deliberately. The plan names ten targets,
+  # which was the set the pages read when it was written. `factors.qmd` also
+  # reads `factor_platform`, `methyl_platform` and `mutation_factor_annot`, and
+  # `survival.qmd` reads `cox_fit`; without their edges the platform verdicts
+  # and the EPV/split panel could go stale silently -- and those are precisely
+  # the numbers that qualify the headline results.
+  tar_target(
+    dashboard_site,
+    {
+      invisible(list(
+        mofa_factors, mofa_varexp, subtypes_df, km_subtype_df, concordance,
+        survival_metrics, bap1_auroc, sanity_table, rna_mat, cox_fit,
+        factor_platform, methyl_platform, mutation_factor_annot,
+        gdc_live_panel
+      ))
+      quarto::quarto_render(input = "dashboard", quiet = TRUE)
+      DASHBOARD_SITE_DIR
+    },
+    format = "file",
+    packages = c(tar_option_get("packages"), "quarto")
+  )
 )

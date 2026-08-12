@@ -26,6 +26,7 @@ Imports:
     reticulate,
     basilisk,
     httr,
+    jsonlite,
     quarto,
     plotly,
     yaml,

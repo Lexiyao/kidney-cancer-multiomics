@@ -159,15 +159,15 @@ fn_schoenfeld_events <- function(hr, p_exposed,
 #' (PUBLISHED_BAP1_HR_RANGE / SURVIVAL_TARGET_POWER block). In short: the
 #' measured effect (HR 1.584 at 8.63% mutant prevalence) needs ~470 OS events
 #' for 80% power at two-sided 0.05, and the 417-case mutation subset supplies
-#' 138. A `p < 0.05` demand on this snapshot tested the size of TCGA KIRC, not
-#' the correctness of this pipeline.
+#' 147, 18 of them in the mutant arm. A `p < 0.05` demand on this snapshot
+#' tested the size of TCGA KIRC, not the correctness of this pipeline.
 #'
-#' CAVEAT ON THE 138: it is DERIVED, not recorded. No committed transcript
-#' prints an event count for this fit — see the block in R/constants.R, which
-#' also shows that the companion "~12 in the mutant arm" is in tension with the
-#' recorded confidence interval (which implies ~18). The re-specification rests
-#' on it, so it is labelled as derived until the next container run prints it;
-#' `n_events` and friends are returned below precisely so it can be.
+#' THOSE COUNTS ARE RECORDED, not derived. Run 31375702141 prints n_events =
+#' 147, n_mutant = 36, n_events_mutant = 18, events_required = 470.4;
+#' transcribed at docs/results/module4-run-31375702141.txt. They are returned by
+#' this function precisely so that they could be. An earlier version of this
+#' block quoted a reconstructed 138 / ~12 and warned that it was underived
+#' evidence — that reconstruction is superseded and must not be quoted.
 #'
 #' What replaced it is STRICTER, not looser — but only because the SECOND thing
 #' the old `ci_low > 1` guaranteed was replaced too. It carried two claims at

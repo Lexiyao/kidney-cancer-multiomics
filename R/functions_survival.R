@@ -67,8 +67,13 @@ fn_fit_cox <- function(surv_df, predictors, split = HELDOUT_FRACTION,
        predictors = predictors,
        train = parts$train,
        test = parts$test,
-       risk_train = as.numeric(predict(fit, type = "lp")),
-       risk_test  = as.numeric(predict(fit, newdata = parts$test, type = "lp")),
+       # stats::predict, NOT bare predict: tar_make() runs every target in one
+       # process, so packages attached by earlier targets accumulate and MOFA2
+       # (attached for the mofa_* targets) masks the generic with a signature
+       # that has no `type`. predict.coxph is not exported, so qualifying the
+       # METHOD is impossible -- qualify the GENERIC instead.
+       risk_train = as.numeric(stats::predict(fit, type = "lp")),
+       risk_test  = as.numeric(stats::predict(fit, newdata = parts$test, type = "lp")),
        n_events = cap$n_events,
        n_events_cohort = sum(surv_df$status == 1L),
        n_terms = cap$n_terms,
@@ -121,9 +126,17 @@ fn_fit_penalised_cox <- function(surv_df, predictors, split = HELDOUT_FRACTION,
             identical(colnames(x_train), colnames(x_test)))
   y_train <- survival::Surv(parts$train$time, parts$train$status)
   set.seed(seed)
+  # cox.ties pinned explicitly: glmnet 5.0 defaults to "breslow" but warns that
+  # 5.1 will switch to "efron". Leaving it implicit means a routine dependency
+  # bump silently changes every C-index this pipeline reports. "breslow" keeps
+  # the numbers reproducible against the recorded runs; changing it is a
+  # deliberate act that must be re-verified, not a side effect of an upgrade.
   cvfit <- glmnet::cv.glmnet(x_train, y_train, family = "cox",
-                             alpha = 1, nfolds = n_folds)
-  risk_test <- as.numeric(predict(cvfit, newx = x_test, s = "lambda.min", type = "link"))
+                             alpha = 1, nfolds = n_folds,
+                             cox.ties = "breslow")
+  # stats::predict for the same masking reason as fn_fit_cox above.
+  risk_test <- as.numeric(stats::predict(cvfit, newx = x_test, s = "lambda.min",
+                                         type = "link"))
   list(model = cvfit,
        lambda_min = cvfit$lambda.min,
        predictors = predictors,

@@ -1,0 +1,131 @@
+---
+title: "Live GDC Panel"
+format:
+  html:
+    page-layout: full
+---
+
+```{r}
+#| label: setup
+#| include: false
+library(plotly)
+source("../R/constants.R")
+source("../R/functions_dashboard.R")
+source("../R/functions_gdc_live.R")
+
+# `gdc_live_panel` is the ONE target in the DAG that is not frozen: it carries
+# tar_cue(mode = "always") and re-queries api.gdc.cancer.gov on every run.
+# NULL here means the store was not restored for this render, exactly as on
+# every other page.
+panel <- fn_dashboard_read("gdc_live_panel")
+```
+
+::: {.provenance .provenance-live}
+[Live]{.provenance-label} **This is the only page in the project whose numbers
+change.** Everything here is queried from the **GDC REST API**
+(`api.gdc.cancer.gov/cases`) and describes TCGA-KIRC **as the GDC portal holds
+it today**. Nothing on this page comes from the frozen research snapshot, and
+**no number here is comparable to a cohort figure** on the
+[Dashboard](dashboard.qmd), [MOFA Factors](factors.qmd) or
+[Survival](survival.qmd) pages — those are all frozen 20160128 (hg19).
+:::
+
+## What updates, and what does not
+
+The multi-omics research core is a **frozen 2016 `curatedTCGAData` snapshot**.
+Re-running it weekly would reproduce it byte-for-byte, so claiming the *project*
+is a regularly updated tool would be false. What is genuinely scheduled is this
+panel: the `gdc_live_panel` target re-queries the GDC API on every pipeline run,
+and the weekly cron (`.github/workflows/cron.yml`) re-runs that target and
+re-freezes the cached store.
+
+**Honest scope of the "weekly" claim.** The cron refreshes the panel and the
+cached store; publishing the rendered site is currently a **manual** action
+(`.github/workflows/pages.yml` is `workflow_dispatch` only). So the number below
+is current as of the render timestamp it carries — not as of the moment you read
+it — and it will advance on the schedule the site is deployed on. The timestamp
+is printed with every figure for exactly that reason.
+
+```{r}
+#| label: total
+#| echo: false
+if (is.null(panel)) {
+  htmltools::div(
+    class = "pending-note",
+    fn_dashboard_pending("the live GDC case total and clinical facets")
+  )
+} else {
+  htmltools::div(
+    class = "provenance provenance-live",
+    htmltools::HTML(sprintf(
+      paste0("<strong>%d</strong> TCGA-KIRC cases at the GDC ",
+             "(project <code>%s</code>), retrieved <strong>%s UTC</strong>."),
+      panel$total_cases, panel$project_id,
+      format(panel$retrieved_at, "%Y-%m-%d %H:%M", tz = "UTC")
+    ))
+  )
+}
+```
+
+::: {.dashboard-note}
+**Do not read the count above as the analysis cohort.** It is every TCGA-KIRC
+case the GDC currently indexes, on any assay or none. The analysis cohort is
+`r COHORT_SIZES$rna_methyl_cnv` cases — those with RNA **and** methylation
+(HM27 ∪ HM450) **and** CNV in the frozen 20160128 snapshot — falling to
+`r COHORT_SIZES$rna_methyl_cnv_mutation` once mutation annotation is required.
+The two sources disagree in both directions: the 2016 legacy MAF covers
+`r COHORT_SIZES$mutation_subset` cases while today's masked-somatic MAF covers
+fewer, and today's portal indexes cases the 2016 snapshot did not. Quoting a
+live figure as a snapshot figure (or the reverse) is a silent error this project
+has already made once and corrected.
+:::
+
+## Current clinical distribution at the GDC
+
+Case counts by clinical field, **live**, for the whole TCGA-KIRC project. These
+are portal-wide distributions, not the distribution of the analysis cohort, and
+they are shown as counts rather than percentages so nothing implies a modelled
+quantity.
+
+```{r}
+#| label: facets
+#| echo: false
+if (is.null(panel)) {
+  htmltools::div(
+    class = "pending-note",
+    fn_dashboard_pending("the live clinical-distribution charts")
+  )
+} else {
+  # Built as ONE tagList rather than printed inside a `results: asis` loop:
+  # htmlwidgets emitted from a loop lose their dependency registration and the
+  # charts come out blank. Assembling the headings and widgets together lets
+  # knitr collect the plotly dependencies once, for all of them.
+  htmltools::tagList(lapply(names(panel$facets), function(field) {
+    df <- panel$facets[[field]]
+    fig <- plot_ly(df, x = ~n, y = ~reorder(category, n), type = "bar",
+                   orientation = "h",
+                   marker = list(color = DASHBOARD_ACCENT)) |>
+      layout(xaxis = list(title = "Cases (live GDC)"),
+             yaxis = list(title = ""),
+             margin = list(l = 160))
+    # The stamp goes on EVERY chart, not just the total above: a facet chart
+    # screenshotted out of this page must still say when the portal was queried,
+    # because the store it renders from can be weeks older than the render.
+    htmltools::tagList(
+      htmltools::h3(fn_gdc_facet_title(field)),
+      htmltools::div(class = "provenance provenance-live",
+                     fn_gdc_facet_note(field, panel$retrieved_at)),
+      fig
+    )
+  }))
+}
+```
+
+::: {.provenance .provenance-live}
+[Live]{.provenance-label} A facet that GDC stops serving is treated as drift,
+not as an empty result: `fn_extract_gdc_buckets()` stops with the API's own
+warning rather than rendering a blank chart, so the weekly cron fails loudly
+instead of publishing a panel that quietly lost a field. That is not
+hypothetical — the field this page shows as *Sex at birth* was
+`demographic.gender` when it was first written, and GDC no longer defines it.
+:::

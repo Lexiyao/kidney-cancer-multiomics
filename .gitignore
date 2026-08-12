@@ -11,6 +11,25 @@ renv/staging/
 _targets/objects/
 _targets/meta/process
 _targets/meta/progress
+# ...and _targets/meta/meta, which the three rules above leave TRACKABLE. That
+# combination is worse than either extreme: a committed metadata file with no
+# committed objects makes fn_dashboard_read() see a "present" store, look the
+# target up successfully, and then fail on the missing object -- so a fresh
+# clone would ERROR on every dashboard page instead of degrading to the stated
+# gaps it is designed to degrade to. The whole store travels as the
+# `targets-store` release asset (scripts/freeze_release_assets.R tars the
+# directory, which .gitignore does not touch), so none of it belongs in git.
+_targets/meta/
+
+# The release artefact scripts/freeze_release_assets.R writes into the repo
+# ROOT (`utils::tar("targets-store.tar.gz", files = "_targets", ...)`). Without
+# this rule the multi-GB tarball is untracked-but-visible after a local freeze,
+# and the next `git add -A` commits it -- the same failure the two comment
+# blocks above exist to prevent for _targets/meta/meta and the relocated
+# _site/. cron.yml runs the same script on a checked-out runner. The tarball
+# ships as a release asset and is never committed. Matched by pattern, not by
+# exact name, so a tag-derived filename cannot slip past it.
+/*.tar.gz
 
 # Data caches (ExperimentHub / GDC)
 data/raw/*
@@ -26,8 +45,17 @@ __pycache__/
 .ruff_cache/
 
 # Quarto
+# Task 5.3 moves the Quarto output-dir from `_site` (i.e. dashboard/_site) to
+# `../_site`, because Task 5.9's `dashboard_site` target and Task 5.10's Pages
+# deploy both publish the repo-root `_site/`. The plan never updates this file,
+# so the rendered site would land OUTSIDE every ignore rule and the first
+# `git add -A` after a render would commit several MB of generated HTML plus
+# site_libs. Both paths are listed: the old one so a stale render is still
+# ignored, the new one because it is where renders land now.
+/_site/
 dashboard/_site/
 dashboard/.quarto/
+.quarto/
 
 # OS
 .DS_Store

@@ -271,30 +271,18 @@ BAP1_MAX_CI_RATIO <- 5
 #   HR 1.584, 95% CI 0.967-2.595, p = 0.0677, n = 417, BAP1-mutant 8.63%
 #   (36 of 417 cases).
 #
-# DERIVED, NOT YET RECORDED — read this before citing the next two numbers:
-#   138 OS events in the fitted mutation subset, ~12 of them in the mutant arm.
-#   NEITHER figure appears in any committed transcript. The run-30840373033
-#   transcript prints only hr / ci_low / ci_high / p_value / n for BAP1; `grep
-#   n_events docs/results/` returns nothing. They were carried over from the
-#   536-case survival census (run 30708943504, 173 events) by an unrecorded
-#   restriction to the mutation subset.
+# ALSO MEASURED, and this settles what an earlier version of this block called
+# "DERIVED, NOT RECORDED". Run 31375702141 (verify-module2.yml LEVEL 3),
+# transcribed at docs/results/module4-run-31375702141.txt:
+#   n_events = 147, n_mutant = 36, n_events_mutant = 18,
+#   events_required = 470.4, underpowered = TRUE.
 #
-#   This matters because 138 is the number that licenses the ONE permitted
-#   re-specification below (470 required vs 138 available, "~3.4x short",
-#   power 0.33). It should not be treated as evidence until it is printed.
-#
-#   And "~12" is in ACTIVE TENSION with the recorded interval. The recorded CI
-#   gives SE(log HR) = log(2.5946 / 0.9670) / (2 * 1.96) = 0.2518, which
-#   reproduces the recorded p = 0.0677 exactly. For a two-arm Cox,
-#   SE ~= sqrt(1/d1 + 1/d0); with d1 + d0 = 138 that implies d1 ~ 18 mutant-arm
-#   events, not 12 (d1 = 12 would give SE 0.302 and a CI ratio of 3.27 against
-#   the recorded 2.68). One of the two is wrong.
-#
-#   THE FIX IS ALREADY IN THE BRANCH, NOT APPLIED: verify-module2.yml LEVEL 3
-#   now prints n_events / n_mutant / n_events_mutant / events_required /
-#   underpowered. Re-run it, commit the transcript, and re-cite that run ID —
-#   then these become MEASURED. Until then they are labelled as derived
-#   everywhere they appear.
+#   The reconstruction this block used to carry — 138 events, ~12 in the mutant
+#   arm — is superseded and must not be quoted. The recorded 18 is also what the
+#   recorded interval implied: SE(log HR) = log(2.5946 / 0.9670) / (2 * 1.96)
+#   = 0.2518 reproduces p = 0.0677 exactly, and for a two-arm Cox
+#   SE ~= sqrt(1/d1 + 1/d0) gives d1 ~ 18, not 12. The tension is resolved in
+#   favour of the measurement, not of the arithmetic.
 #
 # Schoenfeld's requirement for a two-group Cox comparison is
 #   d = (z_{1-alpha/2} + z_{power})^2 / (p * (1 - p) * log(HR)^2)
@@ -304,9 +292,10 @@ BAP1_MAX_CI_RATIO <- 5
 #   HR 1.2   (the weakest published effect) -> d = 2993 events
 #   HR 3.0   (the strongest)                -> d = 82 events
 #
-# The cohort supplies 138 (DERIVED, see above). A 417-case ccRCC series with an 8.6%-prevalence
-# marker of this effect size is STRUCTURALLY incapable of reaching alpha 0.05:
-# it would need ~3.4x its event count. Requiring `p < 0.05` and `ci_low > 1` of
+# The cohort supplies 147, 18 of them in the mutant arm (RECORDED, run
+# 31375702141). A 417-case ccRCC series with an 8.6%-prevalence marker of this
+# effect size is STRUCTURALLY incapable of reaching alpha 0.05: it would need
+# ~3.2x its event count. Requiring `p < 0.05` and `ci_low > 1` of
 # it was therefore a requirement no correct pipeline running on this snapshot
 # could ever satisfy — it tested the size of TCGA KIRC, not the correctness of
 # this code. The DIRECTION and MAGNITUDE are what the literature anchors and
@@ -425,3 +414,79 @@ RSF_NTREE             <- 1000L     # randomForestSRC trees
 CALIBRATION_BINS      <- 5L        # risk-group bins for grouped calibration
 SURVIVAL_HORIZON_DAYS <- 5 * 365   # 5-year OS calibration horizon
 BAP1_LABEL_COL        <- "BAP1"    # column of mut_annot holding BAP1 status
+
+# --- Live GDC API panel (Module 5) -------------------------------------------
+# The ONLY live-updating source. The research core stays on the frozen
+# curatedTCGAData snapshot (SNAPSHOT_DATE); this panel is refreshed weekly.
+#
+# THESE COUNTS ARE NOT THE COHORT. Anything this panel returns is a CURRENT
+# GDC-portal figure for the whole TCGA-KIRC project; the analysis cohort is
+# COHORT_SIZES$rna_methyl_cnv cases from the frozen 20160128 snapshot. The two
+# disagree in both directions (the 2016 legacy MAF covers MORE cases than
+# today's masked-somatic MAF; CNV and HM450 cover fewer), so a number from here
+# must never be quoted as a snapshot number, or vice versa.
+GDC_API_BASE   <- "https://api.gdc.cancer.gov"
+GDC_PROJECT_ID <- "TCGA-KIRC"
+# VERIFIED against https://api.gdc.cancer.gov/cases/_mapping on 2026-08-10.
+# The plan's third field was `demographic.gender`, which the current GDC cases
+# index does NOT define -- a facet request for it comes back with
+# `warnings.facets = "unrecognized values: [demographic.gender]"` and no
+# aggregation, which would take the whole live panel down. The field is now
+# `demographic.sex_at_birth`.
+GDC_FACET_FIELDS <- c(
+  "demographic.vital_status",
+  "demographic.sex_at_birth",
+  "diagnoses.ajcc_pathologic_stage"
+)
+
+# --- Module 5: dashboard presentation -----------------------------------------
+# Significant digits for the evidence strings on the landing-page sanity table.
+# Presentation only: rounding here can never change a pass/fail verdict, which
+# is computed in Module 3 and merely reported by Module 5.
+SANITY_DETAIL_DIGITS <- 3L
+# Attached to any sanity check that flags itself `underpowered`. A green tick
+# on such a check means "the direction matches the literature", never "the
+# result is confirmed", and the dashboard must say so in the same cell.
+SANITY_UNDERPOWERED_NOTE <- paste(
+  "UNDERPOWERED: direction consistent with the literature,",
+  "the test itself is not conclusive at this event count"
+)
+
+# Where a rendering .qmd finds the frozen store. `_quarto.yml` sets
+# `execute-dir: file`, so a page's working directory is `dashboard/` and the
+# store restored from the release asset sits one level up. Every page reads it
+# through fn_dashboard_read(); no page constructs this path itself.
+DASHBOARD_STORE_PATH <- "../_targets"
+
+# House accent, kept identical to --kirc-accent in dashboard/styles.css so the
+# Plotly traces and the CSS do not drift apart.
+DASHBOARD_ACCENT <- "#2c6e91"
+
+# The two methylation assays are the project's largest confound, so they get
+# fixed colours: whenever a plot splits by platform it splits the same way on
+# every page. HM450 borrows the "live"/warning amber deliberately -- a reader
+# should register the split as a caveat, not as decoration.
+DASHBOARD_PLATFORM_COLOURS <- c(HM27 = "#2c6e91", HM450 = "#d08700")
+
+# Verdict vocabulary for the per-factor platform annotation on factors.qmd.
+# `confounded` is assigned on the SAME q <= SANITY_MAX_P rule that Phase 4 used
+# to choose its predictors, so the page cannot describe a factor as clean that
+# the model treated as dirty (or the reverse).
+FACTOR_VERDICT_CONFOUNDED <- "CONFOUNDED by assay"
+FACTOR_VERDICT_CLEAN      <- "platform-clean"
+FACTOR_VERDICT_DEGENERATE <- "AUC UNUSABLE (p underflowed to 0)"
+FACTOR_VERDICT_UNSCORED   <- "not scored against platform"
+
+# A value box whose underlying target is absent from THIS render. The main
+# dashboard is the most quoted surface in the project, so a value box is the
+# single easiest place for an unmeasured quantity to enter a conversation as a
+# result. An absent number is therefore printed as an absent number, in the
+# warning colour, and never as a plausible-looking figure.
+DASHBOARD_PENDING_VALUE  <- "not in this render"
+DASHBOARD_PENDING_COLOUR <- "warning"
+
+# Rendered-site directory, relative to the repo root. `dashboard/_quarto.yml`
+# sets `output-dir: ../_site`, the `dashboard_site` target returns this path as
+# its file output, and `.github/workflows/pages.yml` uploads it. One constant so
+# those three cannot drift into publishing an empty directory.
+DASHBOARD_SITE_DIR <- "_site"

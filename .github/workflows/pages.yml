@@ -1,9 +1,17 @@
 name: pages
 
-# Deploying publishes the site publicly. Kept on manual dispatch only until the
-# Module 5 dashboard actually has results worth showing and publication is a
-# deliberate decision — a push trigger would make every merge to main an
-# outward-facing publish. Restore the `push: branches: [main]` trigger then.
+# Restores the frozen `_targets` store from its release asset, renders the
+# Quarto site from that cache, and deploys `_site/` to GitHub Pages. It never
+# rebuilds the research core -- there is deliberately no pipeline-run step
+# anywhere in this file, which Task 5.10's check greps for: CI is not
+# reproduction (spec section 8), and a green run of this workflow says only
+# that the cached results rendered.
+#
+# TRIGGER IS MANUAL, DELIBERATELY. Deploying makes the site public, and whether
+# to publish is a decision for the repo owner, not a side effect of a merge.
+# The Task 5.10 plan text adds `push: branches: [main]`; that trigger is
+# withheld until publication is decided, so this workflow is complete but
+# dormant. Adding those two lines is the whole of enabling it.
 on:
   workflow_dispatch:
 
@@ -22,14 +30,110 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    env:
+      HEAVY_PULL: "false"          # never re-pull ExperimentHub/HM450 in CI
+      # The repo .Rprofile bootstraps renv and repoints libPaths at an empty
+      # project library, which would hide everything installed below.
+      RENV_CONFIG_AUTOLOADER_ENABLED: "false"
+      R_PROFILE_USER: /dev/null
     steps:
       - uses: actions/checkout@v4
+
+      # Hard failure if the asset is absent is the correct behaviour: without
+      # the store every page degrades to its "PENDING" state, and publishing a
+      # site of stated gaps under the project's name is worse than not
+      # publishing. Run scripts/freeze_release_assets.R from a completed local
+      # run first.
+      - name: Restore frozen _targets store from release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download targets-store --pattern 'targets-store.tar.gz' --clobber
+          tar xzf targets-store.tar.gz
+          test -f _targets/meta/meta
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          # Matches renv.lock (R 4.6.1). The plan pins 4.4.1, which predates the
+          # lockfile the container was snapshotted from. Nothing here recomputes
+          # a result, so the R version affects rendering only -- but a version
+          # that silently differs from the one that produced the store is the
+          # kind of drift this project is supposed to notice.
+          r-version: '4.6.1'
+          use-public-rspm: true
+
       - uses: quarto-dev/quarto-actions/setup@v2
-      - name: Render Quarto site (from cached results, no full pipeline)
+
+      # NOT `r-lib/actions/setup-renv@v2`, which the plan specifies. renv.lock
+      # pins the complete 218-package RESEARCH environment (MOFA2, minfi,
+      # curatedTCGAData, ...) and restoring it on a bare ubuntu runner fails
+      # outright -- ci.yml records the measured failure:
+      #   error testing if 'igraph' can be loaded
+      #   libglpk.so.40: cannot open shared object file
+      # because the Bioconductor chain needs system libraries this image lacks.
+      # The render needs none of that: the .qmd pages read plain matrices,
+      # data.frames and lists out of the store. `survival` is here because
+      # `cox_fit` deserialises a `coxph` object; `httr` because live-gdc.qmd
+      # sources R/functions_gdc_live.R (it does not call the API at render
+      # time -- gdc_live_panel is read from the store like everything else).
+      #
+      # `rmarkdown` IS NOT A PAGE DEPENDENCY -- do not prune it as unused. It is
+      # the knitr engine's own: quarto gates the engine on
+      # `caps.packages.rmarkdown` / `rmarkdownVersOk` and its share/rmd/execute.R
+      # calls `rmarkdown::render()` directly. None of the other seven packages
+      # depends on it, and because an explicit `packages:` list is given the
+      # action does NOT fall back to DESCRIPTION/renv -- while this job disables
+      # renv outright (RENV_CONFIG_AUTOLOADER_ENABLED / R_PROFILE_USER above),
+      # so the rmarkdown 2.31 that renv.lock pins, and that makes the
+      # in-container dashboard_site render work, is not reachable here. Omitting
+      # it failed the render step on every dispatch, AFTER the release-asset
+      # download had already succeeded: the same "package exists but is not
+      # reachable" failure this file's comments were written against.
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          packages: |
+            any::targets
+            any::plotly
+            any::ggplot2
+            any::survival
+            any::knitr
+            any::rmarkdown
+            any::htmltools
+            any::httr
+
+      - name: Render site from cached _targets (no full pipeline)
         run: quarto render dashboard
+
+      # Every page prints a "PENDING" block in place of any target the restored
+      # store could not supply. That is the honest degradation, not a render
+      # failure -- but it must never go out unnoticed, so a partial store is
+      # surfaced in the job summary rather than deployed silently.
+      - name: Report any stated gaps in the rendered site
+        run: |
+          set -euo pipefail
+          gaps=$(grep -lo 'PENDING' _site/*.html || true)
+          if [ -n "$gaps" ]; then
+            {
+              echo "### Pages rendered with stated gaps"
+              echo "The restored store did not supply every target:"
+              echo '```'
+              echo "$gaps"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No PENDING blocks: every page rendered from the store." \
+              >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - uses: actions/configure-pages@v5
+
+      # dashboard/_quarto.yml sets `output-dir: ../_site`, so the rendered site
+      # is at the repo root, not dashboard/_site. Same path as the
+      # DASHBOARD_SITE_DIR constant the dashboard_site target returns.
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: dashboard/_site
+          path: _site
+
       - id: deployment
         uses: actions/deploy-pages@v4

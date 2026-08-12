@@ -228,6 +228,17 @@ jobs:
             emit(paste(capture.output(print(ma)), collapse = "\n"))
 
             # --- Module 4, the ONLY place its targets are ever built --------
+            # Load survival/glmnet FIRST. Reading a coxph object back out of the
+            # targets store does NOT load the package that defines its methods,
+            # so `summary(cf$model)` fell through to summary.default and returned
+            # an atomic vector -- run 31218159514 died on
+            # `$ operator is invalid for atomic vectors` AFTER the pipeline had
+            # built cleanly. Same class of bug as the masked predict(): a method
+            # that exists is not a method that is reachable.
+            suppressPackageStartupMessages({
+              library(survival)
+              library(glmnet)
+            })
             # Without this block the survival fits and the BAP1 AUROC were
             # merely constructed and thrown away: nothing printed them and
             # nothing asserted them, so a degenerate fit left no trace. The
@@ -354,7 +365,38 @@ jobs:
               print(df[anchor & df$skipped > 0, c("file", "test")])
               stop("credibility anchors SKIPPED after tar_make — they must execute here")
             }
-            if (sum(df$failed) > 0) quit(status = 1)
+
+            # EXPECTED FAILURES. The m1-m4 anchors are a RECORDED NEGATIVE
+            # RESULT: on this snapshot the merged methylation partition tracks
+            # assay platform (ARI 0.583) and the strata do not survive within a
+            # single arm. Letting the job stay permanently red would train
+            # everyone to ignore it, and silencing the anchor would delete the
+            # finding. So the set of failures is pinned instead: exactly these
+            # two may fail. A NEW red anchor fails the job; an m1-m4 anchor that
+            # starts PASSING also fails the job, because that means the data or
+            # the pipeline changed and the recorded negative no longer holds.
+            expected_red <- c(
+              "ANCHOR: methylation recovers four strata (m1-m4) -- RED, a real negative result",
+              "ANCHOR: the m1-m4 strata are biology, not the HM27/HM450 batch -- RED"
+            )
+            red <- sort(df$test[df$failed > 0])
+            missing_red <- setdiff(expected_red, red)
+            unexpected_red <- setdiff(red, expected_red)
+            cat("\n### EXPECTED-FAILURE LEDGER\n")
+            cat("expected red :", length(expected_red), "\n")
+            cat("observed red :", length(red), "\n")
+            if (length(unexpected_red)) {
+              cat("\nUNEXPECTED failures (these fail the job):\n")
+              cat(paste0("  - ", unexpected_red, collapse = "\n"), "\n")
+            }
+            if (length(missing_red)) {
+              cat("\nExpected-red anchors that PASSED (the recorded negative no",
+                  "longer holds -- re-verify and update the ledger):\n")
+              cat(paste0("  - ", missing_red, collapse = "\n"), "\n")
+            }
+            if (length(unexpected_red) || length(missing_red)) quit(status = 1)
+            cat("\nLedger matches: the only red anchors are the recorded m1-m4",
+                "negative result.\n")
           '
 
       - name: Collect targets metadata

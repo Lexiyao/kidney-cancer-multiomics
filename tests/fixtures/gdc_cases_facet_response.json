@@ -1,0 +1,1 @@
+{"data": {"hits": [], "aggregations": {"demographic.vital_status": {"buckets": [{"doc_count": 360, "key": "alive"}, {"doc_count": 177, "key": "dead"}]}}, "pagination": {"count": 0, "total": 537, "size": 0, "from": 0, "sort": "", "page": 1, "pages": 537}}, "warnings": {}}

@@ -1,19 +1,110 @@
 name: cron
 
+# Weekly maintenance, scoped exactly as spec section 9 scopes it:
+#   (i)  refresh the ONE live-updating target, gdc_live_panel, and re-freeze the
+#        cached store so the refreshed panel is what the site would render;
+#   (ii) dependency / environment drift detection + container rebuild.
+#
+# IT DOES NOT CLAIM THE RESEARCH DATA UPDATES, and it cannot: the research core
+# descends from the frozen curatedTCGAData 20160128 (hg19) snapshot and a weekly
+# re-run reproduces it byte-for-byte. The `assert only the live panel was
+# rebuilt` step below turns that claim into a check rather than a comment.
+#
+# NO PAGES DEPLOY IS TRIGGERED FROM HERE. Task 5.11's plan text ends by
+# dispatching pages.yml from this job, which would make it a weekly automatic
+# PUBLISH of the site. Publication is a deliberate, still-pending decision (see
+# pages.yml), so that step is deliberately absent and `actions: write` is not
+# granted. Consequence, stated plainly because it qualifies the "regularly
+# updated tool" claim: this workflow keeps the cached panel current, and the
+# DEPLOYED page advances only when Pages is run. Restore the trigger step (and
+# the permission) at the same time as the push trigger in pages.yml.
+
 on:
   schedule:
     - cron: "17 4 * * 1"   # Mondays 04:17 UTC
   workflow_dispatch:
 
+permissions:
+  contents: write          # re-upload the targets-store release asset
+
 jobs:
-  drift-check:
+  live-panel:
+    runs-on: ubuntu-latest
+    env:
+      HEAVY_PULL: "false"   # research core stays frozen; only the panel updates
+      RENV_CONFIG_AUTOLOADER_ENABLED: "false"
+      R_PROFILE_USER: /dev/null
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore frozen _targets store from release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download targets-store --pattern 'targets-store.tar.gz' --clobber
+          tar xzf targets-store.tar.gz
+          test -f _targets/meta/meta
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: '4.6.1'        # matches renv.lock
+          use-public-rspm: true
+
+      # NOT `r-lib/actions/setup-renv@v2` (the plan's step). renv.lock pins the
+      # full 218-package research environment and restoring it on a bare ubuntu
+      # runner fails on the Bioconductor system-library chain -- ci.yml records
+      # the measured error (libglpk.so.40, via igraph). This job needs `targets`
+      # + `yaml` to parse the DAG and `httr` to make one HTTPS request, because
+      # gdc_live_panel declares `packages = "httr"` for exactly this reason.
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          packages: |
+            any::targets
+            any::yaml
+            any::httr
+
+      - name: Refresh ONLY the live GDC panel
+        run: Rscript -e 'targets::tar_make(gdc_live_panel)'
+
+      # The scope claim, enforced. If any frozen target rebuilt, the store that
+      # gets re-uploaded below is no longer the audited one, and the weekly job
+      # would have quietly become a pipeline re-run.
+      - name: Assert only the live panel was rebuilt
+        run: |
+          Rscript -e '
+            prog  <- targets::tar_progress()
+            built <- unique(prog$name[prog$progress != "skipped"])
+            other <- setdiff(built, "gdc_live_panel")
+            if (length(other)) {
+              stop("cron rebuilt frozen target(s): ", paste(other, collapse = ", "))
+            }
+            cat("scope OK: rebuilt", paste(built, collapse = ", "), "\n")
+          '
+
+      - name: Re-freeze the store with the refreshed panel
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: Rscript scripts/freeze_release_assets.R
+
+  drift:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Weekly maintenance scope (scaffold placeholder)
+
+      # The container build IS the dependency-drift detector: the Dockerfile's
+      # `renv::restore(prompt = FALSE)` resolves all 218 pinned packages, so a
+      # version that vanished upstream, a moved Bioconductor release or a broken
+      # system dependency fails HERE, loudly, on a schedule. The image is a
+      # check, not an artefact -- nothing publishes it.
+      - name: Rebuild container (drift guard, not published)
+        run: docker build -t kidney-cancer-multiomics:cron .
+
+      # `renv::status()` is only meaningful where the library actually exists,
+      # which is inside the image just built. The plan runs it on the bare
+      # runner, where it reports all 218 packages "not installed" every week --
+      # a drift report that is noise cannot detect drift.
+      - name: Dependency status inside the rebuilt image
         run: |
-          echo "Weekly job duties (Module 5 wires the real steps):"
-          echo "  1. Refresh the live-GDC dashboard panel (fn_query_gdc)."
-          echo "  2. Dependency / environment drift detection."
-          echo "  3. Container rebuild."
-          echo "The research core is a frozen 20160128 snapshot and never updates."
+          docker run --rm kidney-cancer-multiomics:cron \
+            R -q -e 'print(renv::status())'

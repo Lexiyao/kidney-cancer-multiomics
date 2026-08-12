@@ -1,0 +1,362 @@
+########## PROVENANCE ##########
+GitHub Actions workflow  : verify-module2.yml
+Run id                   : 31375702141   (conclusion: success)
+Started / finished (UTC) : 2026-08-10T09:40:25Z / 2026-08-10T09:55:53Z
+Head commit              : 8042e3f "ci: load survival/glmnet before reading fitted
+                           models; pin the expected-red anchors"
+Container                : bioconductor/bioconductor_docker:RELEASE_3_23
+Data                     : frozen curatedTCGAData KIRC snapshot 20160128 (hg19),
+                           data version 2.0.1 -- HEAVY_PULL=true
+Sections A and B below are copied verbatim from that run: A from the uploaded
+`module2-results/module2_results.txt` artifact, B from the job log of the
+LEVEL-3 anchor step in the same run.
+
+THIS IS THE FIRST RUN IN WHICH THE MODULE 4 METRICS WERE PRINTED. The preceding
+attempt (run 31218159514) built every Module 4 target cleanly and then died in
+the reporting step on `summary(cf$model)` before the C-index, calibration and
+AUROC lines were reached, so until this run no held-out C-index, calibration
+table or BAP1 AUROC existed anywhere in this repository. The design spec's
+warning that the BAP1 event counts were "DERIVED, NOT RECORDED" is also settled
+here: section B records n_events = 147, n_mutant = 36, n_events_mutant = 18
+(the spec's arithmetic reconstruction said 138 and 12/~18; the recorded values
+are the ones to quote).
+
+########## SECTION A -- module2_results.txt artifact (verbatim) ##########
+### COHORT 
+cohort_n = 524 
+ 
+### MISSINGNESS PER VIEW (drives the SNF complete-feature drop) 
+rna_mat     5000 x 524 | complete features 5000 (100.0%) | non-finite cells 0.000% 
+methyl_mat  5000 x 524 | complete features 4568 (91.4%) | non-finite cells 0.123% 
+cnv_mat     24776 x 524 | complete features 24776 (100.0%) | non-finite cells 0.000% 
+ 
+### MOFA FACTORS 
+dim (samples x factors): 524 x 15 
+factor names: Factor1, Factor2, Factor3, Factor4, Factor5, Factor6, Factor7, Factor8, Factor9, Factor10, Factor11, Factor12, Factor13, Factor14, Factor15 
+ 
+### VARIANCE EXPLAINED PER VIEW PER FACTOR (%) 
+          RNA Methylation   CNV
+Factor1  2.98        3.20 12.93
+Factor2  0.72        9.07  3.26
+Factor3  1.67        3.57  7.45
+Factor4  3.18        0.97  8.16
+Factor5  0.34        7.27  3.32
+Factor6  0.76        4.51  4.82
+Factor7  0.72        0.34  3.65
+Factor8  0.60        0.86  2.80
+Factor9  0.34        1.01  2.58
+Factor10 0.32        0.50  3.06
+Factor11 0.40        0.71  2.64
+Factor12 0.29        0.49  2.30
+Factor13 0.29        0.28  2.04
+Factor14 0.22        0.31  1.91
+Factor15 0.19        0.02  2.17 
+ 
+### MOFA SUBTYPES (k = 4 ) 
+s
+ S1  S2  S3  S4 
+ 20 306  76 122  
+ 
+### SNF CLUSTERS (sensitivity) 
+sn
+ C1  C2  C3  C4 
+257  30 215  22  
+ 
+### MOFA vs SNF CONCORDANCE (adjusted Rand index) 
+$ari
+[1] 0.3509226
+
+$contingency
+    
+      C1  C2  C3  C4
+  S1   0  16   4   0
+  S2 229  10  50  17
+  S3  23   1  50   2
+  S4   5   3 111   3
+
+$n
+[1] 524
+ 
+ 
+### FACTOR <-> DRIVER-MUTATION ASSOCIATION (mutation as external label) 
+    gene   factor      p_value    median_wt    median_mut     q_value
+59  BAP1 Factor14 4.485121e-05 -0.078911580  0.5747079253 0.004036609
+48  BAP1  Factor3 1.544876e-03 -0.239548489  1.7062835097 0.057133870
+52  BAP1  Factor7 1.904462e-03 -0.160290465  0.6780405641 0.057133870
+42 SETD2 Factor12 7.139424e-03 -0.002923038 -0.5030615181 0.126514868
+23 PBRM1  Factor8 7.580484e-03 -0.044547051  0.3802268654 0.126514868
+47  BAP1  Factor2 8.434325e-03  0.402812541 -1.2583265305 0.126514868
+46  BAP1  Factor1 1.125132e-02 -0.641203344  0.8093529046 0.144659787
+5    VHL  Factor5 2.210107e-02 -0.098110873  0.3908324838 0.221399215
+84 KDM5C  Factor9 2.237994e-02 -0.158241585  0.4992971122 0.221399215
+26 PBRM1 Factor11 2.459991e-02  0.285511851 -0.0635205414 0.221399215
+7    VHL  Factor7 2.739730e-02 -0.243530869 -0.0090423189 0.224159689
+21 PBRM1  Factor6 3.526722e-02 -0.055932131 -0.4281624407 0.263923708
+90 KDM5C Factor15 3.812231e-02 -0.067572914  0.3994710147 0.263923708
+24 PBRM1  Factor9 4.924010e-02 -0.216230989  0.0609598365 0.301034920
+88 KDM5C Factor13 5.017249e-02  0.160329521  0.8197626472 0.301034920
+44 SETD2 Factor14 6.178365e-02 -0.017113486  0.1685235947 0.315824672
+64  MTOR  Factor4 6.499052e-02  0.452657387 -0.1802107990 0.315824672
+36 SETD2  Factor6 6.588525e-02 -0.055932131 -1.0489264727 0.315824672
+80 KDM5C  Factor5 6.793048e-02  0.098130297  1.2271294594 0.315824672
+22 PBRM1  Factor7 7.018326e-02 -0.079524562 -0.1619885415 0.315824672
+12   VHL Factor12 8.237476e-02  0.040949311 -0.1850218475 0.339247506
+50  BAP1  Factor5 8.292717e-02  0.075263269  0.7147701085 0.339247506
+53  BAP1  Factor8 1.003122e-01  0.145775124 -0.5825293064 0.392525876
+79 KDM5C  Factor4 1.078445e-01  0.358149230 -0.8838064075 0.404416796
+71  MTOR Factor11 1.191458e-01  0.193514749  0.0631348416 0.428254247
+75  MTOR Factor15 1.237179e-01 -0.033932262  0.3177203238 0.428254247
+56  BAP1 Factor11 1.569618e-01  0.244815752 -0.6392301917 0.498824452
+2    VHL  Factor2 1.597819e-01 -0.130778477  0.4028125405 0.498824452
+19 PBRM1  Factor4 1.656376e-01  0.462010115  0.0888893306 0.498824452
+6    VHL  Factor6 1.662748e-01 -0.174180403 -0.0559321307 0.498824452
+32 SETD2  Factor2 1.771547e-01  0.116585344  0.6896689534 0.506835423
+85 KDM5C Factor10 1.802082e-01 -0.083341654  0.4513523281 0.506835423
+68  MTOR  Factor8 1.981039e-01  0.125007525  0.2602429092 0.517444229
+34 SETD2  Factor4 2.108004e-01  0.368901342 -0.1328156218 0.517444229
+70  MTOR Factor10 2.174323e-01 -0.089364383  0.8103168607 0.517444229
+31 SETD2  Factor1 2.193788e-01 -0.600113809 -0.2477378473 0.517444229
+30 PBRM1 Factor15 2.235479e-01 -0.064861111  0.1029066108 0.517444229
+18 PBRM1  Factor3 2.238886e-01 -0.264760673  0.0261798082 0.517444229
+61  MTOR  Factor1 2.299295e-01 -0.600601971  0.5826073885 0.517444229
+51  BAP1  Factor6 2.373881e-01 -0.082032159 -0.5327761173 0.517444229
+77 KDM5C  Factor2 2.401008e-01  0.103539325  0.8413598537 0.517444229
+57  BAP1 Factor12 2.414740e-01 -0.041987691 -0.1134502739 0.517444229
+43 SETD2 Factor13 2.677930e-01  0.197081611 -0.0013097394 0.560496967
+87 KDM5C Factor12 2.748133e-01 -0.036409527 -0.2041314840 0.562118208
+27 PBRM1 Factor12 2.996451e-01 -0.031200942 -0.1625610441 0.591490994
+9    VHL  Factor9 3.023176e-01 -0.044603361 -0.2287926078 0.591490994
+81 KDM5C  Factor6 3.232585e-01 -0.130217835  0.2881296277 0.606776308
+20 PBRM1  Factor5 3.236140e-01 -0.043487303  0.4287031144 0.606776308
+4    VHL  Factor4 3.356787e-01  0.057242613  0.6698510647 0.616552739
+45 SETD2 Factor15 3.484123e-01 -0.017420609 -0.1370301321 0.624882952
+76 KDM5C  Factor1 3.541003e-01 -0.598964989 -0.2744032145 0.624882952
+72  MTOR Factor12 3.654955e-01 -0.058813237  0.0165998694 0.632588424
+74  MTOR Factor14 3.897899e-01  0.007081254 -0.3512422740 0.661907369
+73  MTOR Factor13 4.180161e-01  0.175175183  0.4558528662 0.689496968
+10   VHL Factor10 4.345843e-01  0.042428030 -0.1662563235 0.689496968
+67  MTOR  Factor7 4.371448e-01 -0.109380458 -0.0090423189 0.689496968
+17 PBRM1  Factor2 4.415950e-01 -0.061069392  0.5703619123 0.689496968
+83 KDM5C  Factor8 4.443425e-01  0.109838821  0.4966698587 0.689496968
+1    VHL  Factor1 4.653749e-01 -0.606672645 -0.5502249002 0.709893900
+3    VHL  Factor3 4.895018e-01 -0.221684121 -0.1658965945 0.714571774
+86 KDM5C Factor11 4.905832e-01  0.184895240  0.4799600244 0.714571774
+38 SETD2  Factor8 4.922606e-01  0.101238646  0.2017920390 0.714571774
+78 KDM5C  Factor3 5.123216e-01 -0.220553294  0.3950767517 0.724435727
+66  MTOR  Factor6 5.151543e-01 -0.095778205 -0.1736938059 0.724435727
+65  MTOR  Factor5 5.309005e-01  0.139334038 -0.0020418451 0.735092947
+89 KDM5C Factor14 5.853594e-01 -0.005772615 -0.0789115801 0.786514493
+8    VHL  Factor8 5.866558e-01  0.130729228  0.1184389964 0.786514493
+60  BAP1 Factor15 5.942554e-01 -0.042914357  0.2905408293 0.786514493
+39 SETD2  Factor9 6.374812e-01 -0.125701353  0.1274138093 0.831497174
+13   VHL Factor13 6.496511e-01  0.187392078  0.1815062612 0.835265652
+49  BAP1  Factor4 6.605528e-01  0.356125146 -0.1176342256 0.837320408
+55  BAP1 Factor10 7.066864e-01 -0.034976501 -0.3628168851 0.873019887
+33 SETD2  Factor3 7.081161e-01 -0.219938144  0.2012118325 0.873019887
+82 KDM5C  Factor7 7.442237e-01 -0.109380458  0.0333966315 0.905136877
+37 SETD2  Factor7 7.636147e-01 -0.125572711  0.0842092186 0.916337693
+25 PBRM1 Factor10 8.003303e-01 -0.114066035  0.0344753200 0.939843229
+63  MTOR  Factor3 8.040881e-01 -0.195735894 -0.3556222022 0.939843229
+54  BAP1  Factor9 8.168242e-01 -0.123869441 -0.1962501556 0.942444816
+15   VHL Factor15 8.272571e-01 -0.020785438 -0.0249501672 0.942444816
+40 SETD2 Factor10 8.512414e-01 -0.078561828 -0.0003625751 0.948919262
+28 PBRM1 Factor13 8.540273e-01  0.180862576  0.1981135905 0.948919262
+11   VHL Factor11 8.707280e-01  0.184895240  0.1921963841 0.954438876
+35 SETD2  Factor5 8.802047e-01  0.151859507  0.0681655935 0.954438876
+16 PBRM1  Factor1 9.197725e-01 -0.601090133 -0.5128833503 0.985286779
+29 PBRM1 Factor14 9.453958e-01 -0.012381937  0.0027937058 0.985286779
+14   VHL Factor14 9.494843e-01  0.003250057 -0.0073328023 0.985286779
+62  MTOR  Factor2 9.524439e-01  0.228400216  0.5858449340 0.985286779
+41 SETD2 Factor11 9.831338e-01  0.180590436  0.3136040717 0.999380985
+69  MTOR  Factor9 9.882768e-01 -0.125545889 -0.1251980811 0.999380985
+58  BAP1 Factor13 9.994170e-01  0.190698728  0.0906674080 0.999416987 
+ 
+### MODULE 4 SURVIVAL FRAME 
+rows 519 | OS events 171 (32.9%) | predictors: Factor1, Factor4, age_years, stage_num, platform 
+
+ HM27 HM450 
+  212   307  
+ 
+### COX FIT (EPV cap measured on the TRAINING rows) 
+train 364 / test 155 | training events 124 | max predictors 12 
+                     coef exp(coef)    se(coef)          z     Pr(>|z|)
+Factor1       -0.01771192 0.9824440 0.033591473 -0.5272742 5.980032e-01
+Factor4       -0.03467593 0.9659184 0.029413624 -1.1789071 2.384352e-01
+age_years      0.03712260 1.0378203 0.008389546  4.4248640 9.650304e-06
+stage_num      0.69208987 1.9978865 0.083284134  8.3099846 9.571448e-17
+platformHM450 -0.12351720 0.8838064 0.185438824 -0.6660806 5.053596e-01 
+ 
+### HELD-OUT C-INDEX PER ARM (higher risk = worse prognosis) 
+cox 0.7486 | penalised 0.7492 | rsf 0.7524 
+cox optimism (apparent - held-out) = 0.0125 
+ 
+### 5-YEAR CALIBRATION (Cox, held-out) 
+  bin  n predicted  observed
+1   1 31 0.2636630 0.2971652
+2   2 31 0.4929017 0.5889973
+3   3 31 0.7347009 0.8191367
+4   4 31 0.8365079 0.7678968
+5   5 31 0.8977040 0.7680000 
+ 
+### BAP1-FROM-EXPRESSION AUROC (external label, non-circular) 
+     cv_auroc heldout_auroc     n_samples n_bap1_mutant 
+    0.9579281     0.9597747   413.0000000    36.0000000  
+
+########## SECTION B -- LEVEL-3 anchor step, same run (from the job log) ##########
+### CREDIBILITY ANCHORS (sanity + clinical + survival)
+anchors : 24 
+  test-clinical.R    anchors 6
+  test-sanity.R      anchors 14
+  test-survival.R    anchors 4
+passed  : 201 
+failed  : 2 
+skipped : 0 
+
+### SANITY VERDICTS ON REAL DATA
+mutation_freq   pass = TRUE | ccRCC driver mutation frequencies within published ranges
+bap1_survival   pass = TRUE | BAP1-mutant tumours show worse overall survival (HR > 1)
+methyl_strata   pass = FALSE | TCGA KIRC methylation resolves into m1-m4 strata
+ccab_signature  pass = TRUE | ccA/ccB expression signatures separate into two groups
+subtype_platform pass = TRUE | MOFA subtypes are independent of the HM27/HM450 assay platform
+
+### mutation frequencies vs published ranges
+   gene   observed  low high pass
+1   VHL 0.44844125 0.40 0.60 TRUE
+2 PBRM1 0.30455635 0.28 0.45 TRUE
+3 SETD2 0.10071942 0.08 0.18 TRUE
+4  BAP1 0.08633094 0.06 0.18 TRUE
+
+### BAP1 survival (+ the design adequacy of the fit)
+$hr
+[1] 1.583991
+
+$ci_low
+[1] 0.9670121
+
+$ci_high
+[1] 2.594619
+
+$p_value
+[1] 0.06773904
+
+$n
+[1] 417
+
+$n_events
+[1] 147
+
+$n_mutant
+[1] 36
+
+$n_events_mutant
+[1] 18
+
+$mutant_frac
+[1] 0.08633094
+
+$events_required
+[1] 470.3653
+
+$underpowered
+[1] TRUE
+
+
+### methylation strata
+$n_strata
+[1] 4
+
+$n_cpg_used
+[1] 4568
+
+$silhouette
+[1] 0.1197132
+
+$kw_p_value
+[1] 1.273639e-82
+
+$platform_ari
+[1] 0.5826973
+
+$platform_p
+[1] 3.001082e-113
+
+$merged_exceeds_within
+[1] TRUE
+
+
+### methylation strata WITHIN each assay platform
+  platform   n n_cpg silhouette
+1     HM27 214  4658 0.08581290
+2    HM450 310  4905 0.04892191
+
+### the m1-m4 verdict, in words
+FINDING, not an unexplained failure: the merged methylation partition tracks ASSAY PLATFORM (ARI 0.583 vs ceiling 0.25), so the m1-m4 strata are NOT recovered on this snapshot (merged silhouette 0.1197); within-platform silhouettes HM27 0.0858 (n=214, 4658 CpGs), HM450 0.0489 (n=310, 4905 CpGs) -- the MERGED silhouette EXCEEDS both, the signature of an assay-driven partition. The cohort is deliberately NOT restricted to one platform and NOT batch-corrected (too few cases are assayed on both platforms for a correction to be validated, and the probe sets differ -- see the methyl_platform_overlap target for the count); platform is instead adjusted for downstream. This anchor stays RED as a recorded negative result. 
+
+### EACH MOFA FACTOR vs PLATFORM (the predictor-selection basis)
+     factor   n       auc      p_value      q_value degenerate
+2   Factor2 524 0.8875038 1.907436e-51 1.430577e-50      FALSE
+5   Factor5 524 0.8183901 2.682749e-35 1.341374e-34      FALSE
+6   Factor6 524 0.7351673 0.000000e+00 0.000000e+00       TRUE
+3   Factor3 524 0.6581851 7.298710e-10 2.737016e-09      FALSE
+9   Factor9 524 0.6388453 6.431183e-08 1.929355e-07      FALSE
+8   Factor8 524 0.6331926 2.145581e-07 5.363952e-07      FALSE
+11 Factor11 524 0.6029846 6.073077e-05 1.301374e-04      FALSE
+14 Factor14 524 0.5777208 2.476690e-03 4.643793e-03      FALSE
+10 Factor10 524 0.5767410 2.807900e-03 4.679834e-03      FALSE
+12 Factor12 524 0.5608230 1.787630e-02 2.681445e-02      FALSE
+15 Factor15 524 0.5520651 4.264860e-02 5.815718e-02      FALSE
+4   Factor4 524 0.5348809 1.744707e-01 2.180883e-01      FALSE
+7   Factor7 524 0.5321375 2.108806e-01 2.433238e-01      FALSE
+13 Factor13 524 0.5233796 3.627633e-01 3.886749e-01      FALSE
+1   Factor1 524 0.5002261 9.932091e-01 9.932091e-01      FALSE
+wired predictors: Factor1, Factor4 | their BH q: 0.993, 0.218 
+
+### CASES ASSAYED ON BOTH METHYLATION PLATFORMS
+methyl_platform_overlap = 3 
+(the count the no-batch-correction decision rests on; it was stated in six places and recorded in none until now)
+
+### MOFA subtypes vs assay platform (the clean result)
+$ari
+[1] 0.005799248
+
+$p_value
+[1] 0.5310619
+
+$n
+[1] 524
+
+$n_subtypes
+[1] 4
+
+       platform
+subtype HM27 HM450
+     S1   11     9
+     S2  120   186
+     S3   33    43
+     S4   50    72
+
+### ccA/ccB signature
+$silhouette
+[1] 0.5818789
+
+$separation_p_value
+[1] 3.577086e-37
+
+$anticorr_rho
+[1] -0.3539966
+
+$anticorr_p_value
+[1] 6.482881e-17
+
+$n_ccb_used
+[1] 6
+
+$n_cca_used
+[1] 6
+
+
+### EXPECTED-FAILURE LEDGER
+expected red : 2 
+observed red : 2 
+
+Ledger matches: the only red anchors are the recorded m1-m4 negative result.

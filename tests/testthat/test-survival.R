@@ -538,3 +538,34 @@ test_that("ANCHOR: bap1_auroc is finite and scored on the mutation subset", {
   expect_gt(a$n_bap1_mutant, 0L)
   expect_lt(a$n_bap1_mutant, a$n_samples)
 })
+
+test_that("survival arms survive a masked predict() generic", {
+  # REGRESSION (container run 31202808278): `cox_fit` errored with
+  # `unused argument (type = "lp")` on the real DAG while every local test
+  # passed. tar_make() runs all targets in ONE process, so packages attached by
+  # earlier targets accumulate -- MOFA2 (attached for the mofa_* targets, which
+  # run before cox_fit) exports its own `predict`, masking stats::predict with a
+  # signature that has no `type`. The fix is to call stats::predict explicitly,
+  # which bypasses any masking of the generic while still dispatching to
+  # predict.coxph / predict.cv.glmnet (neither of which is exported, so `::`
+  # on the method itself is not an option).
+  skip_if_not_installed("survival")
+  skip_if_not_installed("glmnet")
+
+  df <- make_surv_df(n = 200)
+  preds <- c("Factor1", "age_years")
+
+  # Simulate the masking exactly: a `predict` visible to the function's search
+  # path that rejects the arguments the real methods need.
+  masked_env <- new.env(parent = environment(fn_fit_cox))
+  assign("predict", function(object) stop("masked predict reached"), envir = masked_env)
+  cox_masked <- fn_fit_cox
+  environment(cox_masked) <- masked_env
+  pen_masked <- fn_fit_penalised_cox
+  environment(pen_masked) <- masked_env
+
+  expect_silent(fit_cox <- cox_masked(df, preds))
+  expect_true(all(is.finite(fit_cox$risk_test)))
+  fit_pen <- suppressWarnings(pen_masked(df, preds))
+  expect_true(all(is.finite(fit_pen$risk_test)))
+})

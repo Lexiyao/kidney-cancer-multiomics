@@ -378,16 +378,15 @@ independent increment that cannot block release.
   give.** Observed HR = 1.584 (95% CI 0.967–2.595, p = 0.0677, n = 417) — right direction, not
   significant. Schoenfeld: with ln HR = 0.460 and a mutant fraction of 8.63% (36/417,
   p₁·p₂ = 0.0789), 80% power at two-sided 0.05 needs (1.960 + 0.842)² / (0.0789 × 0.460²) ≈ **470
-  events**. The mutation subset supplies ≈ **138 events, ≈ 12 of them in the mutant arm** — power
-  ≈ **0.33**, and the smallest hazard ratio detectable at 80% power is **HR ≈ 2.34**.
-  ⚠️ **The 138 and the 12 are DERIVED, NOT RECORDED.** No committed transcript prints an event
-  count for this fit — run 30840373033 emitted only `hr` / `ci_low` / `ci_high` / `p_value` / `n`,
-  and `grep n_events docs/results/` returns nothing. The recorded interval additionally implies
-  ≈ **18** mutant-arm events, not 12: SE(ln HR) = ln(2.5946/0.9670)/(2·1.96) = 0.2518 (which
-  reproduces the recorded p = 0.0677 exactly), and SE ≈ √(1/d₁ + 1/d₀) with d₁ + d₀ = 138 gives
-  d₁ ≈ 18. `verify-module2.yml` LEVEL 3 now prints `n_events` / `n_mutant` / `n_events_mutant` /
-  `events_required` / `underpowered`; re-run it, commit the transcript and re-cite that run before
-  treating either number as measured. So the
+  events**. The mutation subset supplies **147 events, 18 of them in the mutant arm** — about
+  **3.2×** short of the requirement.
+  ✅ **RECORDED, not derived.** Run `31375702141` (`verify-module2.yml` LEVEL 3) prints
+  `n_events = 147`, `n_mutant = 36`, `n_events_mutant = 18`, `events_required = 470.4`,
+  `underpowered = TRUE`; transcribed at `docs/results/module4-run-31375702141.txt`. This
+  supersedes the earlier reconstruction (≈138 events, ≈12 in the mutant arm), which must not be
+  quoted. The recorded 18 is also what the recorded interval implied: SE(ln HR) =
+  ln(2.5946/0.9670)/(2·1.96) = 0.2518 reproduces p = 0.0677 exactly, and SE ≈ √(1/d₁ + 1/d₀)
+  gives d₁ ≈ 18, not 12. So the
   significance requirement, not the data, was mis-specified; the HR > 1 direction requirement
   stands unchanged. Report BAP1 as directionally consistent with the literature and underpowered
   here — never as a negative finding, and never as a confirmation.
