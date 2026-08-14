@@ -6,5 +6,15 @@ h5py==3.11.0
 scipy==1.13.1
 # BAP1-from-expression classifier (Module 4)
 scikit-learn==1.5.1
-# Single-cell (Module 6, non-blocking)
+# Single-cell (Module 6, non-blocking). anndata is pinned because
+# python/singlecell_qc.py and python/singlecell_annotate.py import it
+# DIRECTLY (`from anndata import AnnData`), same rule as every other direct
+# import in this file; 0.10.9 is the version scanpy 1.10.2 is developed
+# against. scanpy's remaining transitives (numba, llvmlite, pynndescent,
+# natsort, session-info, statsmodels, seaborn, matplotlib) are left to the
+# resolver DELIBERATELY: nothing in this repository imports them directly,
+# and pinning the full closure here would freeze versions this project has
+# never exercised. Recorded so the deviation from the full-pinning rule is a
+# choice, not an accident.
 scanpy==1.10.2
+anndata==0.10.9

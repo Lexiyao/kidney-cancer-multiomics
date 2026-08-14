@@ -31,6 +31,12 @@ _targets/meta/
 # exact name, so a tag-derived filename cannot slip past it.
 /*.tar.gz
 
+# Local config overrides. `_targets.R` reads `R_CONFIG_FILE` so a local run can
+# flip Module 6's `run_singlecell` on (Task 6.8 Step 3) without touching the
+# committed default. Committing that file would turn a one-off local dry-run
+# into CI's config and start the GSE159115 pull on a runner.
+config/params.local.yml
+
 # Data caches (ExperimentHub / GDC)
 data/raw/*
 !data/raw/.gitkeep

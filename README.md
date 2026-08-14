@@ -8,7 +8,7 @@ Quarto/Plotly dashboard, orchestrated by `targets` and pinned by `renv` +
 Docker.
 
 **Dashboard status: built, not published, and the store it needs does not exist
-yet.** The five-page site renders from a cached `_targets` store, and
+yet.** The six-page site renders from a cached `_targets` store, and
 `.github/workflows/pages.yml` is `workflow_dispatch`-only on purpose, so nothing
 is deployed at `lexiyao.github.io/kidney-cancer-multiomics`. Publishing is
 **not** a two-line change: `pages.yml` begins by running `gh release download
@@ -32,9 +32,9 @@ behind them say so rather than being quietly dropped.
 | R + Python in one pipeline | MOFA2 via `reticulate`/`basilisk`; `python/bap1_classifier.py` | **Run on real data** — MOFA2 trains against system Python, no conda pulled (run `30570220145`, transcript not committed) |
 | ML + survival analysis | `R/functions_survival.R`, `R/functions_model_eval.R` (C-index + calibration from scratch) | **Fitted on real data** (run `31375702141`) — read the caveat under "Module 4" before quoting the C-index |
 | Literature positive controls as tests | `R/functions_sanity.R`, `tests/testthat/test-sanity.R` | **Run on real data** — 24 anchor tests (201 expectations green, 2 red), 4 of 5 checks pass, the 4-cluster methylation check pinned as an expected red |
-| Data viz (Plotly) + communicating to a non-technical reader | `dashboard/*.qmd` | **Built and rendering** — 5 pages, each degrading to a stated gap without the store |
+| Data viz (Plotly) + communicating to a non-technical reader | `dashboard/*.qmd` | **Built and rendering** — 6 pages, each degrading to a stated gap without the store |
 | Public data → regularly updated tool | `R/functions_gdc_live.R`, `.github/workflows/cron.yml` | **BUILT, NOT YET RUN.** The weekly cron is wired to refresh the live GDC panel only, but no execution of it exists yet (the two scheduled runs on record are the earlier placeholder job), and it needs the `targets-store` release first |
-| Single-cell | — | **NOT BUILT.** Module 6 (GSE159115 + ESTIMATE purity gate) is v1.1 and non-blocking; no code exists yet |
+| Single-cell | `python/singlecell_qc.py`, `python/singlecell_annotate.py`, `R/functions_purity.R` | **BUILT, FLAG-GATED OFF, NEVER RUN.** Module 6 (GSE159115 + ESTIMATE purity gate) is v1.1 and non-blocking; the code exists behind `run_singlecell: false`, is unit-tested on synthetic fixtures only, and the GSE159115 pull has never been performed — no single-cell result exists |
 | Publication-quality static figures | — | **NOT BUILT.** Figures here are interactive HTML; there is no manuscript-figure export path |
 
 ## One-command run
@@ -179,14 +179,18 @@ latent axes and the feature set, so the held-out C-index and AUROC are
 *unsupervised-transductive*, not fully out-of-sample. The reported optimism
 bounds the supervised component only.
 
-**Not built:** single cell (Module 6, GSE159115) and its ESTIMATE purity gate.
-No single-cell or purity claim is made anywhere in this repository.
+**Built but never run:** single cell (Module 6, GSE159115) and its ESTIMATE
+purity gate. The code and wiring exist behind the `run_singlecell` flag (off
+in CI and in the frozen release), unit-tested against synthetic fixtures only;
+the GSE159115 pull has never been performed and no purity verdict has ever
+been computed, so no single-cell or purity **result** is claimed anywhere in
+this repository.
 
 ## What CI does (and does not) do
 
 - **`ci.yml`** lints and runs `testthat` / `pytest` on subsampled fixtures inside
   the Bioconductor image, asserting installed versions match `renv.lock`, and a
-  third job renders all five dashboard pages twice — once with no store
+  third job renders all six dashboard pages twice — once with no store
   (asserting every page degrades to stated gaps) and once against a **synthetic
   fixture store** (asserting every page renders with no gaps left). It does
   **not** restore the `targets-store` release asset, so the figures it renders
@@ -274,9 +278,11 @@ See [docs/runtime.md](docs/runtime.md) for the full workflow table.
 - **Frozen 2016 / hg19 snapshot.** Genuine live update is limited to the GDC
   statistics panel, and the published page advances only when Pages is
   dispatched.
-- **Bulk → single-cell mapping is not attempted**, so its purity/immune confound
-  is currently an unaddressed design risk rather than a checked one. The
-  ESTIMATE gate is specified (design spec §10) and not implemented.
+- **Bulk → single-cell mapping has never been executed on real data.** The
+  mapping code and the ESTIMATE purity/immune confound gate (design spec §10)
+  are implemented and unit-tested against synthetic fixtures, but the gate has
+  produced no verdict on the real cohort — the confound is
+  implemented-but-unchecked in practice, not unaddressed in design.
 - **CI does not run the full pipeline**; it lints and tests on fixtures, and the
   site renders from cached results.
 

@@ -78,23 +78,10 @@ test_that("fn_sanity_detail rejects a non-list element", {
 # cannot supply the target -> an error, because that is a broken restore
 # masquerading as a fresh clone and must not be papered over.
 
-build_tiny_store <- function() {
-  dir <- tempfile("tinystore")
-  dir.create(dir)
-  old <- setwd(dir)
-  on.exit(setwd(old), add = TRUE)
-  writeLines(c(
-    "library(targets)",
-    "list(",
-    "  tar_target(alpha, 41L + 1L),",
-    "  tar_target(broken, stop('deliberate'), error = 'null')",
-    ")"
-  ), "_targets.R")
-  suppressWarnings(suppressMessages(
-    targets::tar_make(callr_function = NULL, reporter = "silent")
-  ))
-  file.path(dir, "_targets")
-}
+# `build_tiny_store()` was file-local here and has MOVED to
+# tests/testthat/helper-fixtures.R unchanged, so the Module 6 page tests
+# (test-dashboard-singlecell.R) can assert the optional reader against the same
+# three store states instead of copying it a second time.
 
 test_that("fn_dashboard_read returns NULL when the store was never restored", {
   empty <- tempfile("nostore")

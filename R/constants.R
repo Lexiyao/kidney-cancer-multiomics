@@ -532,3 +532,67 @@ DASHBOARD_PENDING_COLOUR <- "warning"
 # its file output, and `.github/workflows/pages.yml` uploads it. One constant so
 # those three cannot drift into publishing an empty directory.
 DASHBOARD_SITE_DIR <- "_site"
+
+# --- Module 6: ESTIMATE tumour-purity
+# (Yoshihara et al., Nat Commun 2013, PMID 24113773) ---
+# The two coefficients of the published purity model — tumour purity is the
+# cosine of (intercept plus slope times the ESTIMATEScore) — as calibrated by
+# Yoshihara et al. on Affymetrix arrays against ABSOLUTE purity.
+# KIRC RNA-seq is NOT that platform, so the value this yields is an
+# APPROXIMATION used only as a covariate/confound probe, never reported as a
+# measured purity. It is also unbounded below: cos crosses zero once the
+# ESTIMATEScore exceeds ~6580, so consumers must not assume a [0, 1] range.
+# That boundary sits INSIDE the realistic range -- high-stromal / high-immune
+# ccRCC samples reach ESTIMATEScores above 6000 -- so the negative branch is
+# reachable on real data rather than theoretical. tests/testthat/test-purity.R
+# pins the number against the arithmetic so the prose cannot drift again.
+ESTIMATE_PURITY_INTERCEPT <- 0.6049872018
+ESTIMATE_PURITY_SLOPE     <- 0.0001467884
+
+# ESTIMATE's common-gene background. estimate::filterCommonGenes intersects the
+# input with the package's merged cross-platform list of 10412 genes, and the
+# ssGSEA ranks behind every score are computed within that space — so an input
+# matrix that supplies only part of it changes what the scores mean.
+ESTIMATE_COMMON_GENES_N <- 10412L
+
+# Floor on the fraction of that background the input must supply
+# (fn_estimate_purity stops below it). CALIBRATED TO THE DEFECT IT EXISTS TO
+# CATCH, not to a measured overlap: the top-5000-variance `rna_mat` can supply
+# at most 5000/10412 = 0.48 of the background, so 0.5 makes a re-wiring of
+# purity_bulk from `rna_full` back to any variance-filtered matrix fail loudly.
+# The true rna_full overlap is unmeasured until the first container run with
+# `estimate` installed; the achieved coverage is recorded on the returned
+# object either way (attribute "common_gene_coverage"), so the first real run
+# documents it rather than asserting it.
+ESTIMATE_MIN_GENE_COVERAGE <- 0.5
+
+# --- Module 6: purity-proxy decision thresholds ---
+# The gate that decides whether the bulk MOFA subtypes may be mapped onto
+# single cells AT FACE VALUE (spec section 10). The gate has TWO arms --
+# TumorPurity ~ subtype and ImmuneScore ~ subtype -- and fires when EITHER is
+# both significant and large: p < ALPHA AND epsilon-corrected eta-squared >=
+# ETA2. Within an arm both conditions must hold, because significance alone is
+# not enough at n = 524, where a trivially small purity difference is still
+# p < 0.05; the effect-size condition is what keeps the gate meaningful at this
+# cohort size, and the two-sided test suite proves it can return FALSE.
+# Across arms it is an OR, because immune infiltration is the more likely of
+# the two confounds in ccRCC and a gate that reads only the purity arm clears a
+# pure immune proxy (see tests/testthat/test-purity.R).
+# The comparison operators here are the ones the dashboard prints verbatim:
+# strict `<` on p, inclusive `>=` on eta-squared.
+PURITY_PROXY_ALPHA <- 0.05   # Kruskal-Wallis significance for subtype~purity
+PURITY_PROXY_ETA2  <- 0.14   # eta-squared "large effect" (Cohen) cut-off
+
+# --- Module 6: bulk -> single-cell mapping (Task 6.8) ---
+# How many genes make up one bulk subtype's signature: the top N genes by
+# (subtype mean - rest mean) on the log2 expression matrix. It is a display /
+# scoring convenience, NOT a differential-expression result -- no test, no
+# multiple-testing correction, no fold-change threshold -- so the number is
+# arbitrary in the way a top-N always is, and it lives here rather than inline
+# in `_targets.R` so it can be changed in one place and quoted honestly.
+SC_SIGNATURE_N_GENES <- 20L
+
+# Where the processed AnnData is written by the `sc_object` target. Under
+# data/processed/ (gitignored) because it is a derived intermediate, and named
+# once here so the writing target and any reader cannot drift apart.
+SC_OBJECT_PATH <- "data/processed/sc_object.h5ad"

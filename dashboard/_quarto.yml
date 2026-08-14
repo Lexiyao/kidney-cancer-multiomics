@@ -18,6 +18,12 @@ website:
         text: Survival
       - href: live-gdc.qmd
         text: Live GDC
+      # Task 6.9 writes this entry as `file: singlecell.qmd`. Quarto navbar
+      # items take `href`, not `file` (that key belongs to `chapters:` in a
+      # book project), and every other entry here uses href -- a `file:` entry
+      # renders as a dead label with no link.
+      - href: singlecell.qmd
+        text: "Single-cell (v1.1)"
     right:
       - icon: github
         href: https://github.com/Lexiyao/kidney-cancer-multiomics

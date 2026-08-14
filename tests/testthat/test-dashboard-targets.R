@@ -10,18 +10,9 @@
 # The synthetic values below are STAND-INS, chosen to exercise shapes and edge
 # cases. They are not measurements and none of them may be quoted anywhere.
 
-targets_manifest <- function() {
-  root <- testthat::test_path("..", "..")
-  old  <- setwd(root)
-  on.exit(setwd(old), add = TRUE)
-  targets::tar_manifest(fields = "command")
-}
-
-eval_target <- function(man, name, env) {
-  cmd <- man$command[man$name == name]
-  testthat::expect_length(cmd, 1L)
-  eval(parse(text = cmd), envir = env)
-}
+# `targets_manifest`, `targets_edges` and `eval_target` used to be defined here.
+# They are generic target-introspection helpers, not Module 5 ones, so Task 6.5
+# promoted them to tests/testthat/helper-fixtures.R rather than copy them.
 
 upstream_env <- function() {
   env <- new.env(parent = globalenv())

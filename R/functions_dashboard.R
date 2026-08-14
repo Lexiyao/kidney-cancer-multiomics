@@ -74,6 +74,180 @@ fn_dashboard_read <- function(name, store = DASHBOARD_STORE_PATH) {
   targets::tar_read_raw(name, store = store)
 }
 
+#' Read one CONDITIONALLY DECLARED target for the v1.1 single-cell page.
+#'
+#' Same guard as `fn_dashboard_read()` with one deliberate difference: a
+#' populated store that does not record the target returns NULL instead of
+#' throwing. For a Module 0-5 target that situation is a broken restore and must
+#' throw. For Module 6 it is the NORMAL state — `sc_object`/`sc_mapping` are
+#' declared only when `config$singlecell$run_singlecell` is TRUE (Task 6.8), and
+#' CI and the frozen release build with it FALSE, so the release store legitimately
+#' has no such target and the page must degrade rather than take the site down.
+#' `purity_check` is read through here for the same reason: it is a v1.1 target
+#' and a store frozen before Module 6 will not carry it.
+#'
+#' A target that IS recorded and ERRORED still throws. Absent and failed are not
+#' the same thing, and rendering a failure as "not built yet" hides it.
+#'
+#' @param name character(1) target name.
+#' @param store path to the `_targets` store.
+#' @return the target's value, or NULL when the store cannot supply it.
+fn_dashboard_read_optional <- function(name, store = DASHBOARD_STORE_PATH) {
+  stopifnot(is.character(name), length(name) == 1L)
+  if (!file.exists(file.path(store, "meta", "meta"))) {
+    return(NULL)
+  }
+  meta <- targets::tar_meta(store = store)
+  if (!name %in% meta$name) {
+    return(NULL)
+  }
+  err <- meta$error[meta$name == name]
+  if (!is.na(err[[1]])) {
+    stop(name, " is recorded in the _targets store but ERRORED: ", err[[1]])
+  }
+  targets::tar_read_raw(name, store = store)
+}
+
+# --- Module 6: the purity confound gate, as a reader sees it ------------------
+
+#' One-line verdict for the subtype-vs-purity confound gate (spec section 10).
+#'
+#' The gate decides whether bulk subtypes may be mapped onto single cells at
+#' face value, so its two verdicts must be distinguishable at a glance: FAILED
+#' is rendered in the same red used for a failing positive control, passed in
+#' the same green. The evidence for BOTH tested arms (TumorPurity and
+#' ImmuneScore: p, eta-squared, n), which arm fired, and the two thresholds
+#' that produced the verdict all travel with it, so the sentence can be quoted
+#' without the reader having to trust the word alone.
+#'
+#' The printed decision rule is the one the code applies, character for
+#' character: `fn_subtype_purity_test` compares p with a STRICT `<` and
+#' eta-squared with an inclusive `>=`. This line previously printed "p <=",
+#' which is a different rule from the one that produced the verdict beside it.
+#'
+#' An NA or non-logical verdict STOPS rather than defaulting. `isTRUE(NA)` is
+#' FALSE, so a defaulting formatter would print "passed" for a gate that never
+#' returned one — the same unsafe direction `_validate_gate_verdict` refuses on
+#' the Python side.
+#'
+#' @param purity_check the `purity_check` target (fn_subtype_purity_test).
+#' @return character(1) of inline HTML.
+fn_purity_gate_line <- function(purity_check) {
+  stopifnot(is.list(purity_check))
+  required <- c("purity_p", "purity_eta2", "immune_p", "immune_eta2",
+                "n", "is_purity_proxy", "gate_arm")
+  missing_fields <- setdiff(required, names(purity_check))
+  if (length(missing_fields) > 0L) {
+    stop("purity_check lacks: ", paste(missing_fields, collapse = ", "),
+         ". The gate verdict may not be shown without the evidence that ",
+         "produced it.")
+  }
+  proxy <- purity_check$is_purity_proxy
+  if (!is.logical(proxy) || length(proxy) != 1L || is.na(proxy)) {
+    stop("purity_check$is_purity_proxy must be a single TRUE or FALSE; a ",
+         "missing verdict must not be rendered as a passing one.")
+  }
+  sprintf(
+    paste0("Kruskal-Wallis, n = %d. TumorPurity ~ subtype: p = %.3g, ",
+           "epsilon-corrected eta&sup2; = %.3f. ",
+           "ImmuneScore ~ subtype: p = %.3g, eta&sup2; = %.3f. ",
+           "(The gate fires when EITHER arm has p &lt; %g AND eta&sup2; &ge; ",
+           "%g; arm fired: %s.) %s"),
+    purity_check$n,
+    purity_check$purity_p, purity_check$purity_eta2,
+    purity_check$immune_p, purity_check$immune_eta2,
+    PURITY_PROXY_ALPHA, PURITY_PROXY_ETA2, purity_check$gate_arm,
+    fn_purity_gate_span(proxy)
+  )
+}
+
+#' The verdict half of `fn_purity_gate_line()`, coloured like every other
+#' pass/fail verdict on the site.
+#' @param proxy length-1 logical, already validated.
+#' @return character(1) of inline HTML.
+fn_purity_gate_span <- function(proxy) {
+  if (proxy) {
+    return(paste0("<span class='verdict-red'>GATE FAILED &mdash; the bulk ",
+                  "subtypes ARE a tumour-purity / immune-infiltration ",
+                  "proxy.</span>"))
+  }
+  # Deliberately narrow. A gate that did not fire is not evidence that the
+  # subtypes are tumour-cell-intrinsic; it is evidence that neither tested
+  # confound reached the stated effect size. At n = 524 with S1 at 20 samples,
+  # a real but moderate gradient can leave the eta-squared arm silent, so the
+  # sentence must not be readable as a positive licence.
+  paste0("<span class='verdict-green'>gate did not fire &mdash; neither ",
+         "tumour purity nor immune infiltration separates the subtypes at ",
+         "this effect size. That is not evidence the subtypes are ",
+         "tumour-cell-intrinsic.</span>")
+}
+
+#' Reshape `sc_mapping$scores_by_celltype` into a cell-type x subtype table.
+#'
+#' The mapping arrives as subtype -> cell type -> mean score (the shape
+#' `map_bulk_signature` returns). Cell types are the rows because that is the
+#' comparison the gate is about: if the subtype signatures separate on cell type
+#' rather than within tumour cells, the reader should be able to see it in the
+#' row pattern.
+#'
+#' Every column header carries the signature's GENE COVERAGE
+#' ("S1 (18/20 genes)"): the signatures are derived on bulk TCGA expression and
+#' intersected with the post-QC scRNA gene space, so partial dropout is the
+#' expected case, and a score computed from 2 of 20 genes must not print with
+#' the authority of one computed from all 20. A mapping without per-signature
+#' coverage is REFUSED for the same reason the empty mapping is: a number
+#' without the count behind it reads as more than was measured. An
+#' unmeasurable signature arrives as NaN (map_bulk_signature never
+#' zero-fills) and is rendered as NaN, not as 0.000.
+#'
+#' @param sc_mapping the `sc_mapping` target.
+#' @return data.frame(cell_type, <one numeric column per subtype, coverage in
+#'   the column name>).
+fn_sc_score_table <- function(sc_mapping) {
+  stopifnot(is.list(sc_mapping))
+  scores <- sc_mapping[["scores_by_celltype"]]
+  if (!is.list(scores) || length(scores) == 0L) {
+    stop("sc_mapping carries no `scores_by_celltype`; there is nothing to ",
+         "tabulate and an empty table would read as 'no signal'.")
+  }
+  coverage <- sc_mapping[["coverage"]]
+  if (!is.list(coverage) || !all(names(scores) %in% names(coverage))) {
+    stop("sc_mapping carries no per-signature `coverage`; a score may not be ",
+         "shown without the gene count that produced it (a value computed ",
+         "from 2 of 20 genes must not print with full-panel authority).")
+  }
+  cell_types <- unique(unlist(lapply(scores, names), use.names = FALSE))
+  columns <- lapply(scores, function(s) as.numeric(unlist(s)[cell_types]))
+  names(columns) <- vapply(names(scores), function(nm) {
+    cov <- coverage[[nm]]
+    sprintf("%s (%s/%s genes)", nm,
+            format(cov$n_genes_used), format(cov$n_genes_requested))
+  }, character(1))
+  do.call(data.frame, c(list(cell_type = cell_types), columns,
+                        list(check.names = FALSE, stringsAsFactors = FALSE)))
+}
+
+#' Why the single-cell panels are empty, stated in their own terms.
+#'
+#' Deliberately NOT `fn_dashboard_pending()`: that sentence tells the reader to
+#' restore the `targets-store` release asset, and here the release asset is
+#' complete and simply contains no single-cell targets, because it was built
+#' with `run_singlecell: false`. A true gap explained by a false cause sends the
+#' reader to fix something that is not broken.
+#'
+#' @param what character(1) description of the missing quantity.
+#' @return character(1).
+fn_singlecell_gap <- function(what) {
+  stopifnot(is.character(what), length(what) == 1L)
+  paste0(
+    "NOT IN THIS BUILD &mdash; ", what, " is not shown because the Module 6 ",
+    "targets were not built here. They are declared only when ",
+    "<code>run_singlecell</code> is TRUE in <code>config/params.yml</code>, ",
+    "and CI and the frozen release both build with it FALSE so the GSE159115 ",
+    "download never runs on a runner. Nothing is displayed in its place."
+  )
+}
+
 # --- Per-factor platform verdicts ---------------------------------------------
 
 #' Annotate MOFA factors with their measured association to the assay split.

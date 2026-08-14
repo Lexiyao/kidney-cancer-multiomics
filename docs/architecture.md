@@ -1,8 +1,10 @@
 # Architecture — module contracts
 
 `targets` orchestrates **six** stage-scoped modules (0–5), with Module 6
-specified and **not built**. Pure functions live in `R/functions_*.R` /
-`python/*.py`; all state is cached in `_targets/`.
+(single-cell, v1.1) present as **flag-gated code that has never run** —
+declared only when `run_singlecell` is true, which it is nowhere. Pure
+functions live in `R/functions_*.R` / `python/*.py`; all state is cached in
+`_targets/`.
 
 | Module | Key targets | Owner files |
 |---|---|---|
@@ -12,7 +14,7 @@ specified and **not built**. Pure functions live in `R/functions_*.R` /
 | 3 Sanity | `sanity_results` | `R/functions_sanity.R` |
 | 4 Model | `cox_fit`, `survival_metrics`, `bap1_auroc` | `R/functions_survival.R`, `R/functions_model_eval.R`, `python/bap1_classifier.py` |
 | 5 Dashboard | `gdc_live_panel`, `dashboard_site` | `R/functions_gdc_live.R`, `dashboard/*.qmd` |
-| 6 Single-cell (v1.1, **NOT BUILT**) | *none — planned:* `purity_check`, `sc_object` | *none — planned:* ESTIMATE purity gate + GSE159115 |
+| 6 Single-cell (v1.1, flag-gated, **NEVER RUN**) | `purity_bulk`, `purity_check`, `sc_h5_path`, `sc_object`, `bulk_signature_sets`, `sc_mapping` — declared only when `run_singlecell` is true (off everywhere; `purity_bulk` needs the R-Forge `estimate` package, present only in the Docker image) | `R/functions_purity.R`, `python/singlecell_qc.py`, `python/singlecell_annotate.py` |
 
 ## Top-level globals (defined in `_targets.R`)
 
@@ -80,9 +82,11 @@ run it comes from.
   `stage_num` and `age_years` are significant, so the C-index is a
   stage-and-age model — see README.md before quoting it. Raw output at
   `docs/results/module4-run-31375702141.txt`.
-- **Module 5 is built and rendering, and is NOT published.** Five Quarto pages
+- **Module 5 is built and rendering, and is NOT published.** Six Quarto pages
   render from the cached store; `.github/workflows/pages.yml` is
   `workflow_dispatch`-only on purpose, so no site is deployed.
-- **Not yet done:** Module 6 (single-cell GSE159115 + the ESTIMATE purity gate)
-  is **NOT BUILT** — no code for it exists in this repository, and no
-  single-cell or purity claim is made anywhere.
+- **Not yet run:** Module 6 (single-cell GSE159115 + the ESTIMATE purity gate)
+  exists as flag-gated code, unit-tested on synthetic fixtures only
+  (`run_singlecell: false` everywhere). The GSE159115 pull has never been
+  performed and no purity verdict has been computed, so no single-cell or
+  purity **result** is claimed anywhere.

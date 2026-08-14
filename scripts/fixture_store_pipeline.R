@@ -168,5 +168,46 @@ list(
       )
     ),
     retrieved_at = as.POSIXct("2026-01-01 00:00:00", tz = "UTC")
+  )),
+
+  # Module 6 (v1.1) shapes, for the same reason as every other target here:
+  # without them the store-present branch of dashboard/singlecell.qmd is
+  # rendered NOWHERE. The real `sc_mapping` is declared only behind
+  # `run_singlecell`, which is off in CI and in the release, so the page's
+  # populated path would otherwise be exercised for the first time on a manual
+  # publish. These are stand-ins with no data behind them, exactly like the
+  # rest of this file, and the gate is set to the FAILING arm because that is
+  # the arm carrying the caveat a reader must not miss.
+  # Shape must track fn_subtype_purity_test: fn_purity_gate_line REFUSES a
+  # purity_check without the immune-arm evidence (immune_eta2, gate_arm), so a
+  # stand-in lacking them aborts the store-present render this script exists to
+  # exercise. Values are internally consistent stand-ins: both arms clear
+  # p < 0.05 and eta2 >= 0.14, hence gate_arm = "purity+immune".
+  tar_target(purity_check, list(
+    purity_p = 1.2e-08, immune_p = 3.4e-05,
+    purity_eta2 = 0.31, immune_eta2 = 0.22,
+    is_purity_proxy = TRUE, gate_arm = "purity+immune", n = 40L
+  )),
+  # Shape must track map_bulk_signature: fn_sc_score_table REFUSES a mapping
+  # without per-signature `coverage`, so the stand-in carries it too.
+  tar_target(sc_mapping, list(
+    scores_by_celltype = list(
+      S1 = list(Tumor_epithelial = 0.42, T_cell = -0.11, Myeloid = 0.05),
+      S2 = list(Tumor_epithelial = -0.07, T_cell = 0.38, Myeloid = 0.12)
+    ),
+    coverage = list(
+      S1 = list(n_genes_requested = 20L, n_genes_used = 17L,
+                low_coverage = FALSE),
+      S2 = list(n_genes_requested = 20L, n_genes_used = 20L,
+                low_coverage = FALSE)
+    ),
+    purity_confounded = TRUE,
+    status = "exploratory",
+    interpretation = paste(
+      "SYNTHETIC STAND-IN, not a result. Bulk subtypes are a tumour-purity /",
+      "immune-infiltration proxy (purity_check failed): these single-cell",
+      "scores reflect cell-type composition, NOT a tumour-cell-intrinsic",
+      "subtype program."
+    )
   ))
 )

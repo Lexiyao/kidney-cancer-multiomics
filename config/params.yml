@@ -17,3 +17,20 @@ snapshot:
 
 fixtures:
   use_fixtures: true           # tests consume tests/fixtures/*, never full pull
+
+# Module 6 (v1.1, non-blocking). `run_singlecell` is a SECOND gate on top of
+# heavy_pull, not a duplicate of it: the GSE159115 H5 pull is the only heavy
+# step that is also OUTSIDE the frozen research core, so it must stay off in
+# CI and in the frozen release even on a host where heavy_pull is true.
+singlecell:
+  run_singlecell: false        # heavy: GSE159115 pull + scanpy QC; local-only, OFF in CI
+  gse_accession: GSE159115
+  # GEO ships NO single `filtered_feature_bc_matrix.h5` for this series. The
+  # supplementary artefact is GSE159115_RAW.tar -- a tar of PER-SAMPLE 10x H5
+  # files covering 14 specimens (8 renal tumours + 6 benign kidneys, spanning
+  # ccRCC AND chromophobe RCC; Zhang et al., PNAS 2021, PMID 34099557) -- plus
+  # per-histology annotation CSVs. The current wiring processes exactly ONE
+  # specimen: after downloading and extracting GSE159115_RAW.tar, set h5_path
+  # to one extracted per-sample H5. Left null so a flag-ON run without a real
+  # download fails loudly in `sc_h5_path` instead of inventing a file layout.
+  h5_path: null

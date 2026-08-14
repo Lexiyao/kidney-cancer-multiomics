@@ -1,0 +1,192 @@
+---
+title: "Single-cell increment (v1.1) — GSE159115"
+format: html
+---
+
+```{r}
+#| label: setup
+#| include: false
+source("../R/constants.R")
+source("../R/functions_dashboard.R")
+
+# Read through the OPTIONAL guard, not fn_dashboard_read(): every target on
+# this page is either declared behind the `run_singlecell` flag (Task 6.8) or
+# was added by Module 6 after the release store was frozen, so "the store is
+# present and has no such target" is the expected state here and must degrade
+# to a stated gap rather than abort the site render.
+#
+# The plan's version of this chunk calls `tar_manifest()` and a bare
+# `tar_read()`. Neither works from a rendering page: `_quarto.yml` sets
+# `execute-dir: file`, so the working directory is dashboard/, where there is
+# no `_targets.R` for tar_manifest to parse and no `_targets` store for
+# tar_read to find. Both would take the whole render down.
+purity_check <- fn_dashboard_read_optional("purity_check")
+sc_mapping   <- fn_dashboard_read_optional("sc_mapping")
+```
+
+::: {.callout-warning}
+## Non-blocking increment
+This page is v1.1. It is built on a separate branch and does **not** gate
+release of the multi-omics core (Modules 0–5). Nothing on it is a finding: the
+GSE159115 single-cell data has not been processed anywhere yet, and no
+scientific claim is made from it on this site.
+:::
+
+GSE159115 is the single-cell RNA-seq series of Zhang Y, Narayanan SP,
+Mannan R, *et al.*, "Single-cell analyses of renal cell cancers reveal
+insights into tumor microenvironment, cell of origin, and therapy response,"
+*Proc Natl Acad Sci U S A* 2021;118(24) (PMID
+[34099557](https://pubmed.ncbi.nlm.nih.gov/34099557/), DOI
+[10.1073/pnas.2103240118](https://doi.org/10.1073/pnas.2103240118)) — cited
+here the same way ESTIMATE carries Yoshihara *et al.* in `R/constants.R`,
+because a dataset used without attribution is a claim without a source.
+
+## Why there is a gate before there is a mapping
+
+Mapping bulk subtypes onto single cells is only interesting if the subtypes are
+something other than a **tumour-purity / immune-infiltration** readout. In
+ccRCC that is a live possibility, not a formality: if the subtypes largely
+track how much tumour (versus stroma and immune infiltrate) is in each bulk
+sample, then scoring single cells against their signatures rediscovers
+*cell-type proportion* and nothing about a cellular basis for the subtypes.
+
+The gate has **two arms**, one per confound: Kruskal-Wallis of `TumorPurity ~
+subtype` and of `ImmuneScore ~ subtype`, each with an epsilon-corrected
+eta-squared. It fires when **either** arm is both significant (p < 0.05) and
+large (eta-squared ≥ 0.14), and the verdict records which arm fired. An OR and
+not an AND: immune infiltration is the more likely of the two confounds in
+ccRCC, so a gate reading only the purity arm would clear a cohort whose
+subtypes are a pure immune proxy.
+
+So the check runs **first**, on bulk data alone. `purity_check` has no
+single-cell input and no edge to any single-cell target, and the mapping takes
+its verdict as an argument — `map_bulk_signature(..., purity_confounded =
+purity_check$is_purity_proxy)` — which refuses a missing or non-boolean verdict
+rather than reading it as a pass. The gate can return either answer: both arms
+are asserted in `tests/testthat/test-purity-targets.R` against independent
+synthetic data, because a gate that cannot fail licenses the mapping
+unconditionally and is the same defect as having no gate at all.
+
+## Purity confound gate
+
+```{r}
+#| label: purity-gate
+#| echo: false
+if (is.null(purity_check)) {
+  htmltools::div(
+    class = "pending-note",
+    htmltools::HTML(fn_singlecell_gap("the purity confound-gate verdict"))
+  )
+} else {
+  htmltools::div(
+    class = "provenance provenance-frozen",
+    htmltools::HTML(fn_purity_gate_line(purity_check))
+  )
+}
+```
+
+::: {.dashboard-note}
+**The purity figure is an approximation, and it is only used as a confound
+probe.** Tumour purity here is the ESTIMATE transformation of Yoshihara et al.
+(*Nat Commun* 2013), whose two coefficients were calibrated on Affymetrix
+arrays against ABSOLUTE. TCGA-KIRC RNA-seq is not that platform, so the value
+is never reported as a measured purity — it is a covariate used to ask one
+question about the subtypes and nothing else.
+:::
+
+## Bulk → single-cell mapping
+
+```{r}
+#| label: mapping-interpretation
+#| echo: false
+if (is.null(sc_mapping)) {
+  htmltools::div(
+    class = "pending-note",
+    htmltools::HTML(fn_singlecell_gap("the bulk to single-cell mapping"))
+  )
+} else {
+  htmltools::div(
+    class = "provenance provenance-frozen",
+    htmltools::HTML(sc_mapping$interpretation)
+  )
+}
+```
+
+```{r}
+#| label: mapping-table
+#| echo: false
+# A SEPARATE chunk from the interpretation above, not decoration: `kable()`
+# returns a multi-element character vector, and htmltools::tagList() cannot
+# hold one ("Text to be written must be a length-one character vector"), so
+# emitting both from one chunk aborts the whole site render.
+if (!is.null(sc_mapping)) {
+  knitr::kable(
+    fn_sc_score_table(sc_mapping),
+    digits = 3,
+    caption = paste(
+      "Mean single-cell score per cell type for each bulk subtype",
+      "signature. Signatures are the top", SC_SIGNATURE_N_GENES,
+      "genes by subtype-versus-rest mean difference -- a ranking, NOT",
+      "differential expression: no test, no multiple-testing correction,",
+      "no fold-change floor. Each column header carries the signature's gene",
+      "coverage (genes found in the single-cell data / genes requested),",
+      "because the signatures are derived on bulk TCGA expression and partial",
+      "dropout in the scRNA gene space is the expected case. NaN marks a",
+      "signature with no measurable gene; it is never rendered as 0."
+    )
+  )
+}
+```
+
+## What the labels on those cells are, and are not
+
+Cell types are assigned by `argmax` over per-cell marker scores across six
+canonical sets — ccRCC tumour epithelium (`CA9`, `NDUFA4L2`, `VEGFA`, `EPCAM`),
+T cells (`CD3D`, `CD3E`, `CD8A`, `IL7R`), myeloid (`CD14`, `LYZ`, `CD68`),
+endothelium (`PECAM1`, `VWF`, `CLDN5`), fibroblast/pericyte (`COL1A1`, `ACTA2`)
+and B cells (`CD79A`, `MS4A1`). Before the `argmax`, each score is
+standardised against a **permutation null** of same-size random gene sets:
+raw `score_genes` outputs are not comparable across marker sets of different
+size — the set-mean's sampling variance scales as 1/(panel size), so on pure
+noise the 2-gene panels won a raw argmax 1.76× as often as the 4-gene ones.
+The standardisation removes that size bias; it does **not** add a confidence
+threshold.
+
+Five limitations travel with every label:
+
+- There is **no confidence threshold**. Every cell receives one of the six
+  labels whether or not it belongs to any of them.
+- There is **no proximal-tubule set**, and `EPCAM` is frequently low in ccRCC,
+  so adjacent-normal tubule cells can be pulled into `Tumor_epithelial`.
+- `ACTA2` also marks pericytes and vascular smooth muscle, so the fibroblast
+  set is not pure.
+- `NDUFA4L2`, in the tumour set, is also a documented **pericyte** marker
+  (Mesa-Ciller et al., *J Cereb Blood Flow Metab* 2023, PMID 35929074).
+  ccRCC is among the most vascularised solid tumours, so pericyte signal is
+  split between two labels — the `ACTA2` fibroblast set and the tumour set
+  itself.
+- `VEGFA` is a hypoxia-response gene expressed broadly by myeloid, stromal
+  and tubular cells, not a tumour-cell-restricted marker, so angiogenic
+  macrophages are pulled toward `Tumor_epithelial`.
+
+## Reproduction
+
+Nothing on this page runs in CI or in the frozen release. `run_singlecell` is
+`false` in `config/params.yml`, so the single-cell targets are not even
+declared on a runner and the GSE159115 download cannot start there. Running it
+locally means flipping that flag in a local override
+(`R_CONFIG_FILE=config/params.local.yml`), supplying the data, and building
+`sc_mapping` in the container, where `reticulate`, `scanpy` and the R-Forge
+`estimate` package exist.
+
+"Supplying the data" is not one file from GEO: the series' supplementary
+artefact is `GSE159115_RAW.tar`, a tar of **per-sample** 10x H5 files covering
+14 specimens — 8 renal tumours and 6 benign kidneys, spanning ccRCC **and**
+chromophobe RCC — plus per-histology annotation CSVs. The wiring as written
+processes exactly **one** specimen's H5 (there is no concatenation, no
+per-sample column, no batch handling), so `h5_path` in `config/params.yml`
+must be pointed at one extracted per-sample file, and any result would be
+about that single specimen, not the series. The committed `h5_path` is null
+and the `sc_h5_path` target refuses to run until it is set. The scanpy
+helpers are unit-tested against a synthetic 10x fixture; the GSE159115 pull
+itself has not been performed.

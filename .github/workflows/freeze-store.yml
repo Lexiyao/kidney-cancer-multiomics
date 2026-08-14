@@ -1,0 +1,131 @@
+name: freeze-store
+
+# Builds the full pipeline on the frozen snapshot and freezes the resulting
+# `_targets` store as the `targets-store` release asset — the artifact that
+# pages.yml restores to render the dashboard and that README describes.
+#
+# This is the missing link the pre-publication audit exposed: every document
+# described the frozen-release mechanism, pages.yml hard-fails without it, and
+# the release had never actually been created. scripts/freeze_release_assets.R
+# covers the local-run path; this workflow is the same freeze from the
+# container, where the store actually gets built in practice.
+#
+# Manual dispatch, or push the dedicated `run-freeze` branch.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [run-freeze]
+
+permissions:
+  contents: write   # gh release create/upload
+
+jobs:
+  freeze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    container:
+      image: bioconductor/bioconductor_docker:RELEASE_3_23
+    defaults:
+      run:
+        shell: bash
+    env:
+      HEAVY_PULL: "true"
+      RETICULATE_PYTHON: /usr/bin/python3
+      BASILISK_EXTERNAL_DIR: /opt/basilisk
+      BASILISK_USE_SYSTEM_DIR: "1"
+      RENV_CONFIG_AUTOLOADER_ENABLED: "false"
+      R_PROFILE_USER: /dev/null
+      EXPERIMENT_HUB_CACHE: /__w/experimenthub
+      ANNOTATION_HUB_CACHE: /__w/annotationhub
+
+    steps:
+      - name: Mark workspace safe for git
+        run: git config --global --add safe.directory '*'
+
+      - uses: actions/checkout@v4
+
+      - name: Install mofapy2 + scikit-learn into the reticulate Python
+        run: |
+          set -euxo pipefail
+          apt-get update && apt-get install -y --no-install-recommends python3-dev
+          pip3 install --no-cache-dir --break-system-packages --ignore-installed \
+            mofapy2==0.7.2 numpy==1.26.4 pandas==2.2.2 h5py==3.11.0 scipy==1.13.1 \
+            scikit-learn==1.5.1
+          mkdir -p /opt/basilisk
+
+      - name: Install R dependencies
+        run: |
+          set -euxo pipefail
+          R -q -e '
+            pkgs <- c("targets", "tarchetypes", "MultiAssayExperiment",
+                      "SummarizedExperiment", "RaggedExperiment",
+                      "curatedTCGAData", "MOFA2", "SNFtool", "mclust",
+                      "glmnet", "randomForestSRC", "survival",
+                      "minfi", "IlluminaHumanMethylation450kanno.ilmn12.hg19",
+                      "reticulate", "httr", "jsonlite", "testthat", "yaml",
+                      # dashboard_site renders the Quarto site inside tar_make;
+                      # the first freeze attempt (run 31634296615) built all 40
+                      # upstream targets and died here on a missing quarto pkg.
+                      "quarto", "plotly", "ggplot2", "htmltools",
+                      "rmarkdown", "knitr")
+            BiocManager::install(pkgs, update = FALSE, ask = FALSE, Ncpus = 4)
+            missing <- pkgs[!vapply(pkgs, requireNamespace, logical(1), quietly = TRUE)]
+            if (length(missing)) stop("failed to install: ", paste(missing, collapse = ", "))
+          '
+
+      # The R quarto package shells out to the quarto CLI; the Bioconductor
+      # image does not put one on PATH.
+      - name: Install quarto CLI
+        run: |
+          set -euxo pipefail
+          QV=1.6.42
+          curl -fsSL -o /tmp/quarto.deb \
+            "https://github.com/quarto-dev/quarto-cli/releases/download/v${QV}/quarto-${QV}-linux-amd64.deb"
+          dpkg -i /tmp/quarto.deb || apt-get install -yf
+          quarto --version
+
+      - name: Build the full pipeline
+        run: |
+          R -q -e '
+            t0 <- Sys.time()
+            targets::tar_make()
+            cat("wall:", round(difftime(Sys.time(), t0, units = "mins"), 1), "min\n")
+          '
+
+      # The store the pages render is only worth freezing if it is COMPLETE and
+      # ERROR-FREE — pages.yml has no fallback and a store with a hole renders a
+      # dashboard with a hole.
+      - name: Assert every target built clean
+        run: |
+          R -q -e '
+            meta <- targets::tar_meta(fields = c("error"))
+            bad <- meta[!is.na(meta$error), c("name", "error")]
+            if (nrow(bad) > 0) { print(bad, right = FALSE); stop("targets errored") }
+            objs <- targets::tar_objects()
+            need <- c("cohort_n", "mofa_factors", "subtypes_mofa", "sanity_results",
+                      "survival_metrics", "bap1_auroc", "gdc_live_panel")
+            missing <- setdiff(need, objs)
+            if (length(missing)) stop("store incomplete: ", paste(missing, collapse = ", "))
+            cat("### store complete:", length(objs), "targets, zero errors\n")
+          '
+
+      - name: Freeze the store as the targets-store release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          type -p gh >/dev/null || (apt-get update && apt-get install -y gh)
+          tar czf targets-store.tar.gz _targets
+          ls -lh targets-store.tar.gz
+          if gh release view targets-store --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload targets-store targets-store.tar.gz \
+              --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create targets-store targets-store.tar.gz \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Frozen _targets store" \
+              --notes "Complete pipeline store built on the frozen curatedTCGAData KIRC snapshot (20160128) inside bioconductor_docker:RELEASE_3_23 by the freeze-store workflow. Restored by pages.yml to render the dashboard. Not a source release."
+          fi
+          gh release view targets-store --repo "$GITHUB_REPOSITORY" --json assets \
+            -q '.assets[] | .name+" "+(.size|tostring)+" bytes"'

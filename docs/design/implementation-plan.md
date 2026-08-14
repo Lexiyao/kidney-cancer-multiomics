@@ -60,7 +60,7 @@
 - `dashboard/factors.qmd` — MOFA2 factor loadings and variance-explained-per-omics visualisations.
 - `dashboard/survival.qmd` — Survival curves and model-evaluation (C-index/calibration) figures.
 - `dashboard/live-gdc.qmd` — Live GDC panel rendering current TCGA-KIRC counts/clinical distribution from fn_query_gdc, refreshed by cron.
-- `dashboard/singlecell.qmd` — v1.1 single-cell page: clusters, annotation, bulk→single-cell mapping with the purity caveat.
+- `dashboard/singlecell.qmd` — v1.1 single-cell page: annotation and bulk→single-cell mapping with the purity caveat. (Clustering was cut in review: a hard-coded-k KMeans whose output had no consumer — see the note in `python/singlecell_qc.py`.)
 - `dashboard/styles.css` — Dashboard styling.
 - `tests/testthat.R` — testthat entrypoint invoking the test suite.
 - `tests/testthat/helper-fixtures.R` — Loads subsampled fixtures from tests/fixtures/ for all R tests.

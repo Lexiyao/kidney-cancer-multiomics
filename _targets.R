@@ -10,7 +10,17 @@ library(targets)
 # appended target can reference them without re-reading the YAML. An explicit
 # HEAVY_PULL=true env var overrides the config default (used by fixture
 # regeneration / local full runs).
-config <- yaml::read_yaml("config/params.yml")
+#
+# DEVIATION FROM THE PLAN, and a plan defect it fixes. Task 6.8 Step 3's local
+# dry-run sets `R_CONFIG_FILE=config/params.local.yml` to flip
+# `run_singlecell` on without editing the committed default -- but nothing in
+# this file consumed that variable, so the command as written would have parsed
+# the committed config, left the single-cell targets undeclared, and failed with
+# "target sc_mapping not found" while looking like a flag problem. The override
+# is honoured here, under the name the plan already uses. It is a LOCAL escape
+# hatch: CI and the frozen release set nothing and read config/params.yml.
+CONFIG_PATH <- Sys.getenv("R_CONFIG_FILE", "config/params.yml")
+config <- yaml::read_yaml(CONFIG_PATH)
 HEAVY_PULL <- isTRUE(config$heavy_pull) ||
   identical(tolower(Sys.getenv("HEAVY_PULL", "false")), "true")
 
@@ -291,6 +301,178 @@ list(
 
   tar_target(concordance, fn_cluster_concordance(subtypes_mofa, snf_clusters)),
   tar_target(mutation_factor_annot, fn_annotate_mutation(mofa_factors, mut_annot)),
+
+  # --- Module 6 (v1.1): confound gate + single-cell, declared ONLY when
+  # run_singlecell is TRUE ----------------------------------------------------
+  # Two gates, not one. `heavy_pull` is the frozen research core's download
+  # gate; `run_singlecell` is a second, independent switch because GSE159115 is
+  # the only heavy step OUTSIDE that core and must stay off in CI and in the
+  # frozen release even on a host where heavy_pull is true. Declaring the
+  # targets conditionally (rather than gating their bodies, as mae_raw does)
+  # means a CI runner never has them in its DAG at all.
+  #
+  # THE ESTIMATE GATE TARGETS (purity_bulk / purity_check) LIVE INSIDE THIS
+  # CONDITIONAL TOO, even though they run on BULK data with no single-cell
+  # input. Not because they belong to the single-cell increment conceptually --
+  # the gate must be computable before any mapping -- but because
+  # fn_estimate_purity needs the R-Forge `estimate` package, which the frozen
+  # research core installs NOWHERE: absent from renv.lock, from
+  # freeze-store.yml's install list, and from ci.yml. Declared unconditionally,
+  # a bare `tar_make()` (freeze-store.yml, heavy-pull.yml, verify-module2.yml
+  # all run one) would halt at purity_bulk under targets' default
+  # error = "stop", and the frozen `targets-store` release asset -- which
+  # pages.yml restores with NO fallback -- could never be produced. Module 6 is
+  # non-blocking by specification, so its one uninstallable dependency must not
+  # be reachable from the default DAG. `estimate` IS installed in the project
+  # Docker image (see Dockerfile), which is where a flag-ON run executes;
+  # dashboard/singlecell.qmd reads purity_check through
+  # fn_dashboard_read_optional and degrades to a stated gap when the target was
+  # never declared. `estimate` is deliberately NOT added to freeze-store.yml:
+  # the default DAG never reaches it, and an R-Forge outage must not be able to
+  # block the release of Modules 0-5.
+  #
+  # Nothing below runs on this dev box: `reticulate` is not installed and the
+  # GSE159115 H5 has never been pulled. Execution is container-deferred; the
+  # WIRING is asserted in tests/testthat/test-purity-targets.R and
+  # tests/testthat/test-singlecell-targets.R off the committed manifest, and
+  # the flag-ON branch is reachable there through the R_CONFIG_FILE override
+  # read at the top of this file.
+  #
+  # KNOWN ORDERING CAVEAT: `dashboard_site` does NOT depend on `sc_mapping` --
+  # the plan specifies "no downstream consumer" for the v1.1 page, and adding a
+  # conditional symbol to an unconditional target's body is not worth the
+  # coupling. So on a flag-ON full run the site can render before the mapping
+  # is built, and singlecell.qmd then shows its stated gap. Re-render the site
+  # after `sc_mapping` completes.
+  if (isTRUE(config$singlecell$run_singlecell)) {
+    list(
+      # --- The confound gate: computed on BULK, upstream of any single cell --
+      # Spec section 10. If the bulk subtypes are mainly a tumour-purity /
+      # immune-infiltration proxy, mapping them onto single cells rediscovers
+      # "immune-cell proportion", not a cellular basis for the subtypes. So the
+      # gate is computed FIRST, on bulk data, with no scRNA input and no edge
+      # to any single-cell target — it cannot be reached only after the mapping
+      # has been seen, and the mapping (Task 6.8) consumes
+      # `purity_check$is_purity_proxy` as an input. Both arms of the verdict
+      # are load-bearing and the gate returns FALSE on independent data: see
+      # the two-sided tests in tests/testthat/test-purity.R.
+      #
+      # rna_full, NOT rna_mat. ESTIMATE is a published 141-gene stromal +
+      # 141-gene immune ssGSEA panel scored against a ~10412 common-gene
+      # background; the top-5000-variance filter that produces rna_mat both
+      # drops signature genes and changes every within-sample rank the ssGSEA
+      # is computed from. This is the same "published panel must not pass
+      # through a data-driven feature filter" rule that created rna_full for
+      # the ccA/ccB check (see the rna_full target above). fn_estimate_purity
+      # additionally asserts the surviving common-gene fraction, so a
+      # re-wiring back to a filtered matrix fails loudly instead of silently
+      # corrupting the gate verdict.
+      #
+      # DEVIATION FROM THE PLAN. Task 6.5 Step 2 also asks for a `subtypes_df`
+      # target here, reshaping `subtypes_mofa` to the sample_id/subtype
+      # contract. That target ALREADY EXISTS — Module 5 added it as a dashboard
+      # adapter with exactly that body — and `targets` errors on a duplicated
+      # target name, so writing the plan's block verbatim would make the whole
+      # pipeline fail to load. The existing target is reused.
+      # `estimate` is deliberately NOT added to this target's `packages`:
+      # fn_estimate_purity calls it fully qualified (`estimate::`), so
+      # declaring it would only make the target fail to LOAD on a host that
+      # lacks an R-Forge package, instead of failing where it actually needs
+      # it.
+      tar_target(purity_bulk, fn_estimate_purity(rna_full)),
+      tar_target(purity_check, fn_subtype_purity_test(purity_bulk, subtypes_df)),
+
+      # GEO does NOT ship a single top-level 10x H5 for GSE159115: the
+      # supplementary artefact is GSE159115_RAW.tar, a tar of PER-SAMPLE 10x
+      # H5 files (14 specimens -- 8 renal tumours + 6 benign kidneys, spanning
+      # ccRCC AND chromophobe RCC), plus per-histology annotation CSVs. The
+      # committed h5_path is therefore null: it must be pointed at ONE
+      # extracted per-sample H5 after a manual download (config/params.yml),
+      # and a flag-ON run without that download must fail HERE, loudly,
+      # rather than downstream with a cryptic missing-file error.
+      tar_target(
+        sc_h5_path,
+        {
+          p <- config$singlecell$h5_path
+          if (is.null(p) || !nzchar(p)) {
+            stop("config$singlecell$h5_path is not set. GSE159115 ships as ",
+                 "GSE159115_RAW.tar (per-sample 10x H5 files, 14 specimens); ",
+                 "download and extract it, then point h5_path at ONE ",
+                 "per-sample H5 -- see config/params.yml.")
+          }
+          p
+        },
+        format = "file"
+      ),
+      tar_target(
+        sc_object,
+        {
+          reticulate::source_python("python/singlecell_qc.py")
+          adata <- process_singlecell(sc_h5_path)
+          out <- SC_OBJECT_PATH
+          dir.create(dirname(out), recursive = TRUE, showWarnings = FALSE)
+          adata$write_h5ad(out)
+          out
+        },
+        format = "file"
+      ),
+      # Derive a small bulk subtype signature: top mean-difference genes per
+      # subtype. This is a top-N ranking, NOT differential expression -- no
+      # test, no correction, no fold-change floor -- and it must be described
+      # that way wherever it is shown.
+      #
+      # DEVIATION FROM THE PLAN's body, twice, both to stop a silent wrong
+      # answer. (1) The plan writes `[seq_len(min(20, length(delta)))]`, where
+      # `length(delta)` is the number of GENES while the vector being indexed
+      # is `names(sort(delta))`, which `sort()` has already shortened by
+      # dropping NAs -- so on any NA the index runs past the end and yields NA
+      # gene names. The length of the SORTED vector is used instead. (2) A
+      # subtype whose samples are all absent from `rna_mat` gives a
+      # zero-column `rowMeans`, i.e. an all-NaN delta and a signature of
+      # arbitrary genes scored against real cells; that is a broken input, so
+      # it stops.
+      tar_target(
+        bulk_signature_sets,
+        {
+          groups <- split(subtypes_df$sample_id, subtypes_df$subtype)
+          lapply(stats::setNames(names(groups), names(groups)), function(nm) {
+            cols <- intersect(groups[[nm]], colnames(rna_mat))
+            rest <- setdiff(colnames(rna_mat), cols)
+            if (length(cols) == 0L || length(rest) == 0L) {
+              stop("subtype ", nm, " has ", length(cols), " of its samples in ",
+                   "rna_mat and leaves ", length(rest), " for the contrast: a ",
+                   "signature cannot be derived from an empty side")
+            }
+            delta <- rowMeans(rna_mat[, cols, drop = FALSE]) -
+                     rowMeans(rna_mat[, rest, drop = FALSE])
+            ranked <- names(sort(delta, decreasing = TRUE))
+            ranked[seq_len(min(SC_SIGNATURE_N_GENES, length(ranked)))]
+          })
+        }
+      ),
+      # The gate's verdict is an ARGUMENT here, not a comment. `map_bulk_signature`
+      # re-frames its own interpretation string from it, and
+      # `_validate_gate_verdict` refuses a non-boolean rather than reading a
+      # missing verdict as "gate passed" (spec section 10).
+      #
+      # `load_h5ad(sc_object)` re-reads the PROCESSED .h5ad written above --
+      # `write_h5ad` preserves `.X`, so annotate_celltypes runs on normalised
+      # data. The 10x-only `load_h5`/`sc.read_10x_h5` cannot parse an AnnData
+      # file and must not be used here.
+      tar_target(
+        sc_mapping,
+        {
+          reticulate::source_python("python/singlecell_qc.py")
+          reticulate::source_python("python/singlecell_annotate.py")
+          adata <- annotate_celltypes(load_h5ad(sc_object))
+          map_bulk_signature(adata, bulk_signature_sets,
+                             purity_confounded = purity_check$is_purity_proxy)
+        }
+      )
+    )
+  } else {
+    list()
+  },
 
   # --- Module 3: sanity-check positive controls (credibility anchor) --------
   # Literature-anchored ccRCC checks, each returning a structured pass/fail

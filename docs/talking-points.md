@@ -122,10 +122,12 @@ Quarto/Plotly dashboard.
   "a scheduled refresh of a cached live panel, built and not yet run", not "a
   live site".
 
-- **Single cell is not built.** Module 6 (GSE159115) and its ESTIMATE purity
-  gate are specified and non-blocking; no code for either exists yet, so the
-  bulk → single-cell purity confound is an unaddressed design risk, not a
-  checked one. I would rather say that than imply a check that has never run.
+- **Single cell is written but has never run.** Module 6 (GSE159115) and its
+  ESTIMATE purity gate exist as flag-gated code, unit-tested on synthetic
+  fixtures only; the GSE159115 pull has never been performed and the gate has
+  never produced a verdict on real data. So the bulk → single-cell purity
+  confound is implemented-but-unchecked, not checked. I would rather say that
+  than imply a check that has never run.
 
 - **CI does not reproduce the analysis.** It lints and runs unit tests on
   subsampled fixtures. The deploying render is *designed* to read a cached
@@ -137,8 +139,8 @@ Quarto/Plotly dashboard.
 ## If asked "what would you do next?"
 
 In order: an external RCC validation cohort (the single biggest weakness);
-implement the ESTIMATE purity gate before anything single-cell touches the
-subtypes; and re-run the methylation arm restricted to HM450 alone at n = 241 to
+run the already-implemented ESTIMATE purity gate before anything single-cell
+touches the subtypes; and re-run the methylation arm restricted to HM450 alone at n = 241 to
 see whether four clusters survive when the assay confound is removed by design
 rather
 than adjusted for — accepting the cohort loss as the price of the answer.

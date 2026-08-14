@@ -162,12 +162,12 @@ jobs:
             any::htmltools
             any::httr
 
-      - name: Render all five pages with NO store (the degradation branch)
+      - name: Render all six pages with NO store (the degradation branch)
         run: |
           set -euxo pipefail
           test ! -f _targets/meta/meta
           quarto render dashboard
-          for p in index dashboard factors survival live-gdc; do
+          for p in index dashboard factors survival live-gdc singlecell; do
             test -f "_site/$p.html"
             # Without the store every page MUST show stated gaps. Zero gaps here
             # would mean a card silently rendered something it had no data for.
@@ -180,7 +180,12 @@ jobs:
           Rscript -e 'targets::tar_make(script = "scripts/fixture_store_pipeline.R", store = "_targets")'
           rm -rf _site
           quarto render dashboard
-          for p in index dashboard factors survival live-gdc; do
+          # `singlecell` is in this loop too: scripts/fixture_store_pipeline.R
+          # supplies stand-in `purity_check` and `sc_mapping` targets precisely
+          # so the v1.1 page's populated branch -- the purity verdict and the
+          # cell-type score table -- is executed here rather than for the first
+          # time on a manual publish.
+          for p in index dashboard factors survival live-gdc singlecell; do
             test -f "_site/$p.html"
             # With every target available NOTHING may still be pending: a gap
             # here is a page failing to read a target the store holds.
@@ -209,14 +214,21 @@ jobs:
       # (tests/pytest/test_bap1_classifier.py) import all three and fail
       # COLLECTION without them, so "numpy only" stopped being true when Task
       # 4.8 landed. Versions match requirements.txt so CI and the research
-      # container score the classifier with the same solver. The genuinely
-      # heavy parts of requirements.txt (mofapy2, scanpy) stay out — they are
-      # the research environment and are installed in the Docker image and the
-      # heavy-pull job only.
+      # container score the classifier with the same solver.
+      #
+      # scanpy + anndata + h5py + scipy: Module 6's tests
+      # (test_singlecell_qc.py, test_singlecell_annotate.py) importorskip on
+      # scanpy/h5py, and without them here the skip would lift NOWHERE — the
+      # exact "skip that never lifts" defect this file names below for the R
+      # suite. The fixture is generated in-process (conftest.synthetic_10x_h5),
+      # so no GSE159115 pull is involved and this stays a fixtures-only job.
+      # mofapy2 stays out: it is the genuinely heavy research environment and
+      # has verify-module2.yml as its lift.
       - name: Install tooling
         run: >
           pip install ruff pytest "numpy==1.26.4" "pandas==2.2.2"
-          "scikit-learn==1.5.1"
+          "scikit-learn==1.5.1" "scanpy==1.10.2" "anndata==0.10.9"
+          "h5py==3.11.0" "scipy==1.13.1"
       # `ruff check .` rather than naming directories: excludes live in
       # pyproject.toml. (`python/` did not exist until Module 4 created it, and
       # naming a not-yet-existing path made ruff exit 1 with
