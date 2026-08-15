@@ -27,7 +27,7 @@ change.** Everything here is queried from the **GDC REST API**
 it today**. Nothing on this page comes from the frozen research snapshot, and
 **no number here is comparable to a cohort figure** on the
 [Dashboard](dashboard.qmd), [MOFA Factors](factors.qmd) or
-[Survival](survival.qmd) pages — those are all frozen 20160128 (hg19).
+[Survival](survival.qmd) pages - those are all frozen 20160128 (hg19).
 :::
 
 ## What updates, and what does not
@@ -37,7 +37,7 @@ Re-running it weekly would reproduce it byte-for-byte, so claiming the *project*
 is a regularly updated tool would be false. What is genuinely scheduled is this
 panel: the `gdc_live_panel` target re-queries the GDC API on every pipeline run,
 and the weekly cron (`.github/workflows/cron.yml`) is **wired** to re-run that
-target and re-freeze the cached store. "Wired", not "does" — that cron has not
+target and re-freeze the cached store. "Wired", not "does" - that cron has not
 yet executed in its current form, and it restores a `targets-store` release
 asset that does not exist yet, so it is a built mechanism rather than observed
 behaviour.
@@ -45,7 +45,7 @@ behaviour.
 **Honest scope of the "weekly" claim.** The cron refreshes the panel and the
 cached store; publishing the rendered site is currently a **manual** action
 (`.github/workflows/pages.yml` is `workflow_dispatch` only). So the number below
-is current as of the **retrieval** timestamp it carries — the moment the
+is current as of the **retrieval** timestamp it carries - the moment the
 pipeline last queried the GDC, which can be weeks before this page was rendered,
 and is certainly not the moment you are reading it. A deploy restores a cached
 store and rebuilds nothing, so the render can be far newer than the retrieval.
@@ -75,8 +75,8 @@ if (is.null(panel)) {
 ::: {.dashboard-note}
 **The live GDC case total is not the analysis cohort.** It is every TCGA-KIRC
 case the GDC currently indexes, on any assay or none. The analysis cohort is
-`r COHORT_SIZES$rna_methyl_cnv` cases — those with RNA **and** methylation
-(HM27 ∪ HM450) **and** CNV in the frozen 20160128 snapshot — falling to
+`r COHORT_SIZES$rna_methyl_cnv` cases - those with RNA **and** methylation
+(HM27 ∪ HM450) **and** CNV in the frozen 20160128 snapshot - falling to
 `r COHORT_SIZES$rna_methyl_cnv_mutation` once mutation annotation is required.
 The two sources disagree in both directions: the 2016 legacy MAF covers
 `r COHORT_SIZES$mutation_subset` cases while today's masked-somatic MAF covers
@@ -131,6 +131,6 @@ if (is.null(panel)) {
 not as an empty result: `fn_extract_gdc_buckets()` stops with the API's own
 warning rather than rendering a blank chart, so the weekly cron fails loudly
 instead of publishing a panel that quietly lost a field. That is not
-hypothetical — the field this page shows as *Sex at birth* was
+hypothetical - the field this page shows as *Sex at birth* was
 `demographic.gender` when it was first written, and GDC no longer defines it.
 :::

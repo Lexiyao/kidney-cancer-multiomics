@@ -23,7 +23,7 @@ sanity_table     <- fn_dashboard_read("sanity_table")
 `curatedTCGAData` KIRC snapshot 20160128 (hg19), data version 2.0.1**. It never
 updates: re-running the pipeline reproduces it byte-for-byte. The project's only
 live numbers are on the [Live GDC](live-gdc.qmd) page, and a snapshot count is
-**not** interchangeable with a current GDC portal count — the two differ
+**not** interchangeable with a current GDC portal count - the two differ
 materially in both directions.
 :::
 
@@ -46,18 +46,18 @@ the strength of an intention. Four runs have their raw output committed under
 `31375702141`. The other two ids below are marked *(transcript not committed)*,
 because a run id a reader cannot open is weaker evidence than one they can.
 
-| Skill | Where it lives | Status — and the evidence |
+| Skill | Where it lives | Status - and the evidence |
 |---|---|---|
-| Somatic multi-omics integration | `R/functions_integrate.R` (MOFA2 + SNF), Modules 1–3 | **Run on real data.** 15 factors on n = 524, four subtypes (20 / 306 / 76 / 122), MOFA-vs-SNF ARI 0.351 — run `30718392588`, re-emitted by `31375702141` |
-| Transcriptomic / epigenomic / CNV curation | `R/functions_ingest.R`, `R/functions_preprocess.R` | **Run on real data.** `rna_mat` 5000 × 524, `methyl_mat` 5000 × 524 (HM27 ∪ HM450 on common CpGs), `cnv_mat` 24776 × 524, `mut_annot` 417 × 7 — run `30708943504` (transcript not committed) |
+| Somatic multi-omics integration | `R/functions_integrate.R` (MOFA2 + SNF), Modules 1–3 | **Run on real data.** 15 factors on n = 524, four subtypes (20 / 306 / 76 / 122), MOFA-vs-SNF ARI 0.351 - run `30718392588`, re-emitted by `31375702141` |
+| Transcriptomic / epigenomic / CNV curation | `R/functions_ingest.R`, `R/functions_preprocess.R` | **Run on real data.** `rna_mat` 5000 × 524, `methyl_mat` 5000 × 524 (HM27 ∪ HM450 on common CpGs), `cnv_mat` 24776 × 524, `mut_annot` 417 × 7 - run `30708943504` (transcript not committed) |
 | Reproducible pipeline + version control + environment manager | `_targets.R`, `renv.lock` (218 packages), `Dockerfile`, seven GitHub Actions workflows | **Run.** Every result above was produced inside `bioconductor/bioconductor_docker:RELEASE_3_23`, with the research packages installed by `BiocManager`. `renv.lock` pins the environment the `Dockerfile` restores and `ci.yml` asserts against, not the one these figures came out of |
 | R + Python in one pipeline | MOFA2 via `reticulate`/`basilisk` (Module 2); `python/bap1_classifier.py` via `reticulate` (Module 4) | **Run on real data.** MOFA2 trains against the container's system Python with no conda download (run `30570220145`, transcript not committed); the classifier's AUROC is below |
-| ML + survival analysis | `R/functions_survival.R` (Cox / penalised Cox / RSF), `R/functions_model_eval.R` (C-index + calibration written from scratch) | **Fitted on real data** — run `31375702141`. Read the "what these do not mean" note below before quoting the C-index |
-| Literature positive controls as tests | `R/functions_sanity.R`, `tests/testthat/test-sanity.R` | **Run on real data.** 24 anchor tests (201 expectations green, 2 red); 4 of 5 checks pass, **the 4-cluster methylation check fails and is pinned as an expected red** — run `31375702141` |
+| ML + survival analysis | `R/functions_survival.R` (Cox / penalised Cox / RSF), `R/functions_model_eval.R` (C-index + calibration written from scratch) | **Fitted on real data** - run `31375702141`. Read the "what these do not mean" note below before quoting the C-index |
+| Literature positive controls as tests | `R/functions_sanity.R`, `tests/testthat/test-sanity.R` | **Run on real data.** 24 anchor tests (201 expectations green, 2 red); 4 of 5 checks pass, **the 4-cluster methylation check fails and is pinned as an expected red** - run `31375702141` |
 | Data viz (Plotly) + communicating to a non-technical reader | `dashboard/*.qmd`, this site | **Built and rendering.** Six pages; every card degrades to a stated gap when a target is missing |
 | Public data → regularly updated tool | `R/functions_gdc_live.R`, `.github/workflows/cron.yml` | **BUILT, NOT YET RUN.** The weekly cron is wired to refresh the [live GDC panel](live-gdc.qmd) only, but it has not yet executed in its current form and needs a `targets-store` release asset that does not exist yet. Deployment of the rendered site is a separate manual action |
-| Single-cell | `python/singlecell_qc.py`, `python/singlecell_annotate.py`, `R/functions_purity.R`, flag-gated Module 6 targets | **BUILT, FLAG-GATED OFF, NEVER RUN.** Module 6 (GSE159115 + the ESTIMATE purity gate) is v1.1 and non-blocking. The code exists and is unit-tested on synthetic fixtures only: `run_singlecell` is `false` everywhere, the GSE159115 pull has never been performed, no purity verdict has been computed, and no single-cell result is claimed anywhere — see the [Single-cell (v1.1)](singlecell.qmd) page's own gaps |
-| Publication-quality static figures | — | **NOT BUILT.** The figures here are interactive HTML; there is no manuscript-figure export path in the repo |
+| Single-cell | `python/singlecell_qc.py`, `python/singlecell_annotate.py`, `R/functions_purity.R`, flag-gated Module 6 targets | **BUILT, FLAG-GATED OFF, NEVER RUN.** Module 6 (GSE159115 + the ESTIMATE purity gate) is v1.1 and non-blocking. The code exists and is unit-tested on synthetic fixtures only: `run_singlecell` is `false` everywhere, the GSE159115 pull has never been performed, no purity verdict has been computed, and no single-cell result is claimed anywhere - see the [Single-cell (v1.1)](singlecell.qmd) page's own gaps |
+| Publication-quality static figures | - | **NOT BUILT.** The figures here are interactive HTML; there is no manuscript-figure export path in the repo |
 
 ## Headline results
 
@@ -108,8 +108,8 @@ held-out, 0.958 cross-validated** on n = 413 with 36 mutants.
 ### What those two numbers do **not** mean {.unnumbered}
 
 **The C-index is a stage-and-age model.** In the fitted Cox model only the
-clinical terms reach significance — `stage_num` *p* = 9.6 × 10⁻¹⁷,
-`age_years` *p* = 9.7 × 10⁻⁶ — while **both wired MOFA factors do not**:
+clinical terms reach significance - `stage_num` *p* = 9.6 × 10⁻¹⁷,
+`age_years` *p* = 9.7 × 10⁻⁶ - while **both wired MOFA factors do not**:
 `Factor1` HR 0.982 (*p* = 0.60) and `Factor4` HR 0.966 (*p* = 0.24). A C-index
 of 0.75 is therefore **not** evidence that multi-omics factors predict survival
 in this cohort. On this data they add nothing detectable to stage and age, and
@@ -117,16 +117,16 @@ that is the finding.
 
 **It is also not fully out-of-sample.** MOFA was fitted on all 524 cases and the
 5000-gene variance filter was computed over all samples before either model drew
-its train/test split. Both steps are outcome-blind — no label leakage — but the
+its train/test split. Both steps are outcome-blind - no label leakage - but the
 held-out rows helped define the latent axes and the feature set, so the figures
 are *unsupervised-transductive*. The 0.0125 optimism bounds the supervised
 component only. There is no external validation cohort.
 
 **The BAP1 AUROC rests on 36 mutants.** 36 of 413 cases carry a BAP1 mutation,
 so the held-out split contains only a handful of positives and the interval
-around 0.96 is wide. The task is genuinely non-circular — the label is an
+around 0.96 is wide. The task is genuinely non-circular - the label is an
 external mutation call, not something derived from the expression it is
-predicted from — but the point estimate should be read as "a strong expression
+predicted from - but the point estimate should be read as "a strong expression
 signature is plausibly there", not as a validated classifier.
 
 ## Literature positive controls (the credibility anchor)
@@ -153,7 +153,7 @@ if (is.null(sanity_table)) {
 Four of the five checks pass on the real snapshot; **the merged-methylation
 4-cluster check fails**. That partition tracks the **assay platform** (adjusted
 Rand index 0.583 against a 0.25 veto), and four clusters are not recovered
-inside either platform on its own — within-arm silhouettes HM27 0.0858 and
+inside either platform on its own - within-arm silhouettes HM27 0.0858 and
 HM450 0.0489 are both *below* the merged 0.1197, so the merge manufactures the
 structure rather than diluting it. The failure is pinned as an expected red in
 the container run (`verify-module2.yml`): a *new* red fails the job, and so does
@@ -177,7 +177,7 @@ matrix at all.
 research core is a frozen 2016 / hg19 snapshot and never updates. CI lints and
 runs unit tests on subsampled fixtures; the deploying render is designed to read
 a cached `_targets` store restored from a release asset, and that asset has not
-been produced yet — **a green CI badge is not end-to-end reproduction**. Full limitations are in the
+been produced yet - **a green CI badge is not end-to-end reproduction**. Full limitations are in the
 [README](https://github.com/Lexiyao/kidney-cancer-multiomics#known-limitations-stated-openly)
 and `docs/runtime.md`.
 :::

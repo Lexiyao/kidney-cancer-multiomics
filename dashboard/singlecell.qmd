@@ -1,5 +1,5 @@
 ---
-title: "Single-cell increment (v1.1) — GSE159115"
+title: "Single-cell increment (v1.1) - GSE159115"
 format: html
 ---
 
@@ -37,7 +37,7 @@ Mannan R, *et al.*, "Single-cell analyses of renal cell cancers reveal
 insights into tumor microenvironment, cell of origin, and therapy response,"
 *Proc Natl Acad Sci U S A* 2021;118(24) (PMID
 [34099557](https://pubmed.ncbi.nlm.nih.gov/34099557/), DOI
-[10.1073/pnas.2103240118](https://doi.org/10.1073/pnas.2103240118)) — cited
+[10.1073/pnas.2103240118](https://doi.org/10.1073/pnas.2103240118)) - cited
 here the same way ESTIMATE carries Yoshihara *et al.* in `R/constants.R`,
 because a dataset used without attribution is a claim without a source.
 
@@ -60,8 +60,8 @@ subtypes are a pure immune proxy.
 
 So the check runs **first**, on bulk data alone. `purity_check` has no
 single-cell input and no edge to any single-cell target, and the mapping takes
-its verdict as an argument — `map_bulk_signature(..., purity_confounded =
-purity_check$is_purity_proxy)` — which refuses a missing or non-boolean verdict
+its verdict as an argument - `map_bulk_signature(..., purity_confounded =
+purity_check$is_purity_proxy)` - which refuses a missing or non-boolean verdict
 rather than reading it as a pass. The gate can return either answer: both arms
 are asserted in `tests/testthat/test-purity-targets.R` against independent
 synthetic data, because a gate that cannot fail licenses the mapping
@@ -90,7 +90,7 @@ if (is.null(purity_check)) {
 probe.** Tumour purity here is the ESTIMATE transformation of Yoshihara et al.
 (*Nat Commun* 2013), whose two coefficients were calibrated on Affymetrix
 arrays against ABSOLUTE. TCGA-KIRC RNA-seq is not that platform, so the value
-is never reported as a measured purity — it is a covariate used to ask one
+is never reported as a measured purity - it is a covariate used to ask one
 question about the subtypes and nothing else.
 :::
 
@@ -141,13 +141,13 @@ if (!is.null(sc_mapping)) {
 ## What the labels on those cells are, and are not
 
 Cell types are assigned by `argmax` over per-cell marker scores across six
-canonical sets — ccRCC tumour epithelium (`CA9`, `NDUFA4L2`, `VEGFA`, `EPCAM`),
+canonical sets - ccRCC tumour epithelium (`CA9`, `NDUFA4L2`, `VEGFA`, `EPCAM`),
 T cells (`CD3D`, `CD3E`, `CD8A`, `IL7R`), myeloid (`CD14`, `LYZ`, `CD68`),
 endothelium (`PECAM1`, `VWF`, `CLDN5`), fibroblast/pericyte (`COL1A1`, `ACTA2`)
 and B cells (`CD79A`, `MS4A1`). Before the `argmax`, each score is
 standardised against a **permutation null** of same-size random gene sets:
 raw `score_genes` outputs are not comparable across marker sets of different
-size — the set-mean's sampling variance scales as 1/(panel size), so on pure
+size - the set-mean's sampling variance scales as 1/(panel size), so on pure
 noise the 2-gene panels won a raw argmax 1.76× as often as the 4-gene ones.
 The standardisation removes that size bias; it does **not** add a confidence
 threshold.
@@ -163,7 +163,7 @@ Five limitations travel with every label:
 - `NDUFA4L2`, in the tumour set, is also a documented **pericyte** marker
   (Mesa-Ciller et al., *J Cereb Blood Flow Metab* 2023, PMID 35929074).
   ccRCC is among the most vascularised solid tumours, so pericyte signal is
-  split between two labels — the `ACTA2` fibroblast set and the tumour set
+  split between two labels - the `ACTA2` fibroblast set and the tumour set
   itself.
 - `VEGFA` is a hypoxia-response gene expressed broadly by myeloid, stromal
   and tubular cells, not a tumour-cell-restricted marker, so angiogenic
@@ -181,8 +181,8 @@ locally means flipping that flag in a local override
 
 "Supplying the data" is not one file from GEO: the series' supplementary
 artefact is `GSE159115_RAW.tar`, a tar of **per-sample** 10x H5 files covering
-14 specimens — 8 renal tumours and 6 benign kidneys, spanning ccRCC **and**
-chromophobe RCC — plus per-histology annotation CSVs. The wiring as written
+14 specimens - 8 renal tumours and 6 benign kidneys, spanning ccRCC **and**
+chromophobe RCC - plus per-histology annotation CSVs. The wiring as written
 processes exactly **one** specimen's H5 (there is no concatenation, no
 per-sample column, no batch handling), so `h5_path` in `config/params.yml`
 must be pointed at one extracted per-sample file, and any result would be

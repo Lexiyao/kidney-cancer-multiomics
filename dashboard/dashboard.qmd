@@ -36,7 +36,7 @@ rna_mat          <- fn_dashboard_read("rna_mat")
 ::: {.card title="Every number on this page is FROZEN"}
 All figures here come from the **frozen `curatedTCGAData` snapshot 20160128
 (hg19)**, integrated once and cached in the `_targets` store. They **never
-update** — a weekly re-run reproduces them byte-for-byte. The project's only
+update** - a weekly re-run reproduces them byte-for-byte. The project's only
 live-updating numbers are on the [Live GDC](live-gdc.qmd) page, and a
 frozen-snapshot count is **not** interchangeable with a current GDC portal
 count: the two differ materially in both directions.
@@ -192,13 +192,13 @@ htmltools::div(
 **The merged-methylation 4-cluster positive control FAILS, and it stays
 failing here.** (`k = 4` is a design choice taken from the m1–m4 mRNA
 *expression* subtypes of TCGA Nature 2013, which publishes no four
-DNA-methylation strata — so this is a finding about the assay merge, not a
+DNA-methylation strata - so this is a finding about the assay merge, not a
 failed replication.) `methyl_mat` is `cbind(HM27, HM450)` on common CpGs with **no batch
 correction** (cohort split HM27 214 / HM450 310), and the adjusted Rand index
 against the assay split is **0.583** versus a 0.25 veto. Worse for the
 optimistic reading: the strata are *not* recovered inside a single platform
-either — within-arm 4-means silhouettes are HM27 0.0858 and HM450 0.0489,
-**below** the merged 0.1197 — so the merge manufactures the apparent structure
+either - within-arm 4-means silhouettes are HM27 0.0858 and HM450 0.0489,
+**below** the merged 0.1197 - so the merge manufactures the apparent structure
 rather than diluting real structure. No batch correction was applied and none
 will be (only 3 cases overlap the platforms; the probe sets differ).
 
@@ -211,13 +211,13 @@ all and PASS.
 **The BAP1 survival control passes its direction test and is underpowered.**
 HR 1.584 (95 % CI 0.967–2.595, *p* = 0.068). Roughly 470 events would be needed
 for 80 % power; the mutation subset supplies **147, of which 18 are in the
-mutant arm** — recorded by run 31375702141, not inferred from the interval.
+mutant arm** - recorded by run 31375702141, not inferred from the interval.
 That is neither a confirmation nor a negative finding, and it is not reported
 as either.
 
 **The held-out C-index is not fully out-of-sample.** MOFA was fitted on all 524
 cases, including the rows later held out, so the latent axes were defined with
-the test rows contributing. MOFA never sees an outcome — this is transductive
-optimism, not label leakage — but the figure bounds the supervised component
+the test rows contributing. MOFA never sees an outcome - this is transductive
+optimism, not label leakage - but the figure bounds the supervised component
 only, and there is no external validation cohort.
 :::

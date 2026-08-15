@@ -33,8 +33,8 @@ not match the current GDC portal in either direction.
 
 ## Read this before reading any factor
 
-MOFA2 was fitted on three views — log-transformed normalised RNA, merged
-HM27∪HM450 methylation M-values, and GISTIC-thresholded CNV — over the
+MOFA2 was fitted on three views - log-transformed normalised RNA, merged
+HM27∪HM450 methylation M-values, and GISTIC-thresholded CNV - over the
 **524-case** main cohort. Mutation is *not* a view; it is an external label used
 only to interpret factors.
 
@@ -47,20 +47,20 @@ with `q ≤ 0.05` is marked [CONFOUNDED by assay]{.verdict-red} and must not be
 read as a biological axis.
 
 **The same merge fails a literature positive control, and this is the page the
-rest of the site sends you to for the confound — so it says so here rather than
+rest of the site sends you to for the confound - so it says so here rather than
 only on the [Dashboard](dashboard.qmd).** The merged-methylation 4-cluster
 anchor is [RED]{.verdict-red} on this snapshot: the merged 4-means partition
 tracks the assay at ARI **0.583** against a 0.25 veto, and the within-platform
 silhouettes (HM27 0.0858, HM450 0.0489) are *both below* the merged 0.1197, so
 the merge manufactures the structure rather than diluting it. It is pinned as an
-expected red — a *new* red fails the job, and this anchor starting to pass fails
+expected red - a *new* red fails the job, and this anchor starting to pass fails
 it too. `k = 4` is a design choice taken from the m1–m4 mRNA **expression**
 subtypes (TCGA Nature 2013), which reports no four DNA-methylation strata, so
 this red is a finding about the assay merge and not a failed replication. See
 the [Dashboard](dashboard.qmd) red-light card.
 
 Only [Factor1 and Factor4]{.verdict-green} are wired as survival predictors, and
-they were chosen **outcome-blind** — on platform-cleanliness and variance
+they were chosen **outcome-blind** - on platform-cleanliness and variance
 explained alone. Choosing factors on survival association would bias the model
 and is forbidden.
 
@@ -97,8 +97,8 @@ if (!has_store) {
 
 **One caveat on the `BH q` column, because two public places print it
 differently.** The table above renders the q values exactly as the DAG computes
-them. `Factor6`'s Wilcoxon *p* underflowed to exactly 0 — impossible at
-n = 214/310, where the normal approximation floors around 1.98e-84 — and because
+them. `Factor6`'s Wilcoxon *p* underflowed to exactly 0 - impossible at
+n = 214/310, where the normal approximation floors around 1.98e-84 - and because
 BH ranks on *p*, that bad value shifts every larger *p* one rank down and
 depresses the q of the factors below it by at most 2×. So `Factor2` prints
 **1.4e-50** here against a corrected **2.9e-50**, and `Factor5` prints
@@ -147,7 +147,7 @@ if (!has_store) {
 `Factor1` (platform-clean) is plotted against `Factor2` (the most
 platform-loaded factor), **coloured by methylation assay**. If the two colours
 separate along the x-axis, that separation is the assay, not the disease. This
-plot exists to make the confound visible rather than to hide it — which is why
+plot exists to make the confound visible rather than to hide it - which is why
 `Factor2` appears here and nowhere in the survival model.
 
 ```{r}
@@ -175,7 +175,7 @@ if (is.null(mofa_factors) || is.null(methyl_platform)) {
 }
 ```
 
-## What the factors track — and what that is worth
+## What the factors track - and what that is worth
 
 ```{r}
 #| label: mutation-annot
@@ -198,7 +198,7 @@ main cohort (`fn_annotate_mutation()` intersects the two before testing). Exactl
 **BAP1 ↔ Factor14, q = 0.004**. Both halves of that sentence matter:
 
 - it is a real, corrected association, and it is the only one; **and**
-- **Factor14 is a minor axis** — it explains 0.22 % of RNA, 0.31 % of
+- **Factor14 is a minor axis** - it explains 0.22 % of RNA, 0.31 % of
   methylation and 1.91 % of CNV variance. A significant association with a
   factor that explains almost nothing is a weak result, not a headline. Factor14
   also carries some platform signal itself (AUC 0.578, q 0.0046).
@@ -208,7 +208,7 @@ axis", never as "MOFA recovered BAP1 biology".
 
 ::: {.dashboard-note}
 Factors are the frozen MOFA2 output; mutation status (BAP1/PBRM1) is used only
-to *interpret* which factor it tracks — mutation is never a MOFA view. Recorded
+to *interpret* which factor it tracks - mutation is never a MOFA view. Recorded
 values for the platform diagnostic are committed at
 `docs/results/platform-diagnosis-run-30911448546.txt` (run 30911448546) and for
 the factor/variance/mutation tables at

@@ -3,20 +3,20 @@
 The full pipeline is **designed** to be run once (`scripts/run_full_pipeline.R`)
 with the resulting `_targets/` store published as a GitHub **release asset**
 (`scripts/freeze_release_assets.R`), so that Pages and the cron can restore that
-asset and render from it. **The asset does not exist yet** — this repository has
-no releases — so `pages.yml` and `cron.yml`, both of which begin with `gh
+asset and render from it. **The asset does not exist yet** - this repository has
+no releases - so `pages.yml` and `cron.yml`, both of which begin with `gh
 release download targets-store` under `set -euo pipefail`, would currently fail
 at their first step. A green CI badge does **not** mean CI reproduced the
 analysis end to end.
 
-## Measured runtime — full pipeline, GitHub Actions run `31375702141`
+## Measured runtime - full pipeline, GitHub Actions run `31375702141`
 
 These are **measured**, not estimated: they are the `seconds` field that
 `targets` recorded for each target during run `31375702141` (2026-08-10,
 `verify-module2.yml`, `HEAVY_PULL=true`, inside
 `bioconductor/bioconductor_docker:RELEASE_3_23` on a GitHub-hosted
 `ubuntu-latest` runner). The store's `meta` file was uploaded as a run artifact,
-which is where the table comes from — **that artifact is not committed to this
+which is where the table comes from - **that artifact is not committed to this
 repository**, so unlike the Module 2/3/4 figures under `docs/results/`, this
 table cites a run id a reader cannot open. It is recorded here rather than
 dropped, and labelled rather than left to look like the others.
@@ -33,19 +33,19 @@ dropped, and labelled rather than left to look like the others.
 
 **A discrepancy this table used to hide.** The total row previously read
 "36 timed targets | 596 s". The six stage rows enumerate **30** targets, and
-their measured times sum to 595.9 s — so for both figures to hold, six further
+their measured times sum to 595.9 s - so for both figures to hold, six further
 timed targets would have to account for ~0.1 s between them. That is not
 credible: run `31375702141` ran a bare `targets::tar_make()`
-(`.github/workflows/verify-module2.yml`), which also builds `gdc_live_panel` —
-a live HTTPS query to `api.gdc.cancer.gov` — plus `subtypes_df`,
+(`.github/workflows/verify-module2.yml`), which also builds `gdc_live_panel` -
+a live HTTPS query to `api.gdc.cancer.gov` - plus `subtypes_df`,
 `km_subtype_df`, `sanity_table` and `dashboard_site`. `_targets.R` declares 41
 targets in total. Either the count or the partition was wrong, and the `meta`
 artifact that would settle it is not committed, so the **target count is
 withdrawn** and only the measured times are kept. The stage times themselves
-are unaffected — they are the per-target `seconds` fields as recorded.
+are unaffected - they are the per-target `seconds` fields as recorded.
 
 The **job** took 15 min 28 s wall clock (09:40:25 → 09:55:53 UTC). The
-difference — about 5.5 minutes — is container pull, package installation and the
+difference - about 5.5 minutes - is container pull, package installation and the
 test suite, none of which is pipeline compute.
 
 Two things this table corrects about earlier planning estimates:
@@ -54,7 +54,7 @@ Two things this table corrects about earlier planning estimates:
   two minutes.
 - **The ingest download was not the bottleneck.** `mae_raw` took 44.9 s on that
   runner. Download time depends on network and on ExperimentHub cache state, so
-  a cold first pull on a slow link will be slower than this — but the
+  a cold first pull on a slow link will be slower than this - but the
   "10–25 minutes dominated by the HM450 HDF5 download" figure that appears in
   the plan was never measured and is not what happened.
 
@@ -73,7 +73,7 @@ at.
 ## Reference hardware
 
 8-core CPU, 16 GB RAM, Docker. No GPU required. **This is the specification the
-container targets, not the record of a local run** — the full pipeline has not
+container targets, not the record of a local run** - the full pipeline has not
 been executed on a local workstation in this project's history; every measured
 figure above comes from CI containers.
 
@@ -98,7 +98,7 @@ the plan text for Phase 5 describes. Where they differ, the files are what runs.
 
 | Workflow | Trigger | What it actually does |
 |---|---|---|
-| `ci.yml` | push to `main`, PR | Three jobs. `r-checks` and `py-checks` lint (R + Python) and run `testthat` / `pytest` on subsampled fixtures, inside the Bioconductor image, asserting the installed versions match `renv.lock`. `render-smoke` renders all five `.qmd` pages twice — once with **no** store, asserting every page degrades to stated gaps, and once against a **synthetic fixture store** (`scripts/fixture_store_pipeline.R`), asserting every page renders its figures with no gaps left. **It does not restore the `targets-store` release asset**, so it is not reproduction and the numbers it renders are invented stand-ins; the deploying render is `pages.yml`. |
+| `ci.yml` | push to `main`, PR | Three jobs. `r-checks` and `py-checks` lint (R + Python) and run `testthat` / `pytest` on subsampled fixtures, inside the Bioconductor image, asserting the installed versions match `renv.lock`. `render-smoke` renders all five `.qmd` pages twice - once with **no** store, asserting every page degrades to stated gaps, and once against a **synthetic fixture store** (`scripts/fixture_store_pipeline.R`), asserting every page renders its figures with no gaps left. **It does not restore the `targets-store` release asset**, so it is not reproduction and the numbers it renders are invented stand-ins; the deploying render is `pages.yml`. |
 | `pages.yml` | **`workflow_dispatch` only** | Restore the `targets-store` release asset, render `dashboard/`, deploy `_site/` to GitHub Pages. Deliberately manual: publishing makes the site public, and that decision is the repo owner's, not a side effect of a merge. The site is **not currently deployed**. |
 | `cron.yml` | Weekly (Mon 04:17 UTC) + manual | Rebuild **only** `gdc_live_panel` (and assert that nothing else rebuilt), re-freeze the store, and separately rebuild the container as the dependency-drift check. **It does not deploy Pages** and it does not touch the frozen research core. |
 | `verify-module2.yml` | manual | Builds the research targets on real data (`HEAVY_PULL=true`): Modules 1-4 and the credibility-anchor suite. Runs `30718392588`, `30840373033`, `31375702141`. |

@@ -1,7 +1,7 @@
-# Architecture — module contracts
+# Architecture - module contracts
 
 `targets` orchestrates **six** stage-scoped modules (0–5), with Module 6
-(single-cell, v1.1) present as **flag-gated code that has never run** —
+(single-cell, v1.1) present as **flag-gated code that has never run** -
 declared only when `run_singlecell` is true, which it is nowhere. Pure
 functions live in `R/functions_*.R` / `python/*.py`; all state is cached in
 `_targets/`.
@@ -14,12 +14,12 @@ functions live in `R/functions_*.R` / `python/*.py`; all state is cached in
 | 3 Sanity | `sanity_results` | `R/functions_sanity.R` |
 | 4 Model | `cox_fit`, `survival_metrics`, `bap1_auroc` | `R/functions_survival.R`, `R/functions_model_eval.R`, `python/bap1_classifier.py` |
 | 5 Dashboard | `gdc_live_panel`, `dashboard_site` | `R/functions_gdc_live.R`, `dashboard/*.qmd` |
-| 6 Single-cell (v1.1, flag-gated, **NEVER RUN**) | `purity_bulk`, `purity_check`, `sc_h5_path`, `sc_object`, `bulk_signature_sets`, `sc_mapping` — declared only when `run_singlecell` is true (off everywhere; `purity_bulk` needs the R-Forge `estimate` package, present only in the Docker image) | `R/functions_purity.R`, `python/singlecell_qc.py`, `python/singlecell_annotate.py` |
+| 6 Single-cell (v1.1, flag-gated, **NEVER RUN**) | `purity_bulk`, `purity_check`, `sc_h5_path`, `sc_object`, `bulk_signature_sets`, `sc_mapping` - declared only when `run_singlecell` is true (off everywhere; `purity_bulk` needs the R-Forge `estimate` package, present only in the Docker image) | `R/functions_purity.R`, `python/singlecell_qc.py`, `python/singlecell_annotate.py` |
 
 ## Top-level globals (defined in `_targets.R`)
 
-- `config` — parsed `config/params.yml`; Module 6 reads `config$singlecell`.
-- `HEAVY_PULL` — bool; `config$heavy_pull` OR `HEAVY_PULL=true`. Module 1's
+- `config` - parsed `config/params.yml`; Module 6 reads `config$singlecell`.
+- `HEAVY_PULL` - bool; `config$heavy_pull` OR `HEAVY_PULL=true`. Module 1's
   `mae_raw` gates its `tar_cue` on it; every heavy pull checks it.
 
 ## Hard invariants (see design spec §2, §2a and §6)
@@ -56,10 +56,10 @@ run it comes from.
   (33.1%, median follow-up 1188 d) → EPV-10 predictor cap 17; 5-year-restricted
   (1825 d) 148 events → cap 14. Phase 4 wires 5 predictors and does not spend
   the cap.
-- **`renv.lock` is a complete, measured 218-package lock** — resolved from a
+- **`renv.lock` is a complete, measured 218-package lock** - resolved from a
   real install, not partial or hand-authored. (A repository fact rather than a
   run output: the lock was *generated* by `heavy-pull.yml`. Note that no
-  workflow restores it — only the `Dockerfile` does, and `ci.yml` asserts its
+  workflow restores it - only the `Dockerfile` does, and `ci.yml` asserts its
   installed versions against it.)
 - **Module 2 is built on real data** (run 30718392588): MOFA2 trained on the
   three views, 15 factors on n = 524; subtypes S1 20 / S2 306 / S3 76 / S4 122;
@@ -67,7 +67,7 @@ run it comes from.
   `docs/results/module2-run-30718392588.txt`.
 - **Module 3 anchors have run** (run 31375702141): four of the five literature
   checks PASS; `methyl_strata` (4 clusters in the merged HM27+HM450 matrix) is
-  **RED** and stays red — it carries the
+  **RED** and stays red - it carries the
   suite's only 2 red expectations, in 2 anchor tests, out of 203. Pinned as an
   expected failure: a new red fails the job, and this anchor starting to pass
   fails it too. `k = 4` is a design choice taken from the m1–m4 mRNA
@@ -80,7 +80,7 @@ run it comes from.
   (penalised 0.7492, RSF 0.7524), Cox optimism 0.0125; BAP1-from-expression
   AUROC **0.960** held-out on n = 413 with 36 mutants. In that fit only
   `stage_num` and `age_years` are significant, so the C-index is a
-  stage-and-age model — see README.md before quoting it. Raw output at
+  stage-and-age model - see README.md before quoting it. Raw output at
   `docs/results/module4-run-31375702141.txt`.
 - **Module 5 is built and rendering, and is NOT published.** Six Quarto pages
   render from the cached store; `.github/workflows/pages.yml` is

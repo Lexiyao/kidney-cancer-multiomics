@@ -1,4 +1,4 @@
-# Kidney Cancer Multi-Omics Pipeline — Implementation Plan
+# Kidney Cancer Multi-Omics Pipeline - Implementation Plan
 
 > Task-by-task TDD implementation plan. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -12,8 +12,8 @@
 
 - Pin exact versions everywhere (renv.lock / requirements.txt): curatedTCGAData 1.34.0, MultiAssayExperiment 1.38.0, MOFA2 1.22.0, SNFtool 2.3.1, glmnet 5.0, randomForestSRC 3.6.2, survival 3.8-9, all on Bioconductor 3.23.
 - Cohort reality: the multi-omics n is NOT ~530. Main analysis cohort = RNA + Methylation(HM27+HM450 merged on common CpGs) + CNV = 524; the fully-intersected RNA+Methyl+CNV+Mutation set is 413 and RNA+HM450+CNV+Mutation is only 241. Never hard-code '450k' as the methylation platform (that silently halves the cohort). Per-modality primary-tumour counts: RNA-seq 533, HM27 219, HM450 319 (union 535, overlap 3), CNV 528, mutation 417; `colData` carries 536 cases.
-- Cohort-figure provenance: every count above is MEASURED from the frozen 2016 `curatedTCGAData` 2.0.1 snapshot (20160128) by GitHub Actions run 30642823359 on 2026-07-31, using this repo's own `fn_load_mae`/`fn_qc_mae`/`fn_harmonise_ids` on primary-tumour cases — NOT from the live GDC API. The two differ materially (e.g. the 2016 legacy MAF covers 417 cases, today's masked-somatic-mutation MAF only ~374), so never substitute a live-API number for a snapshot number. The cohort census was RE-VERIFIED with zero drift by run 30708943504 on 2026-08-01 (RNA+Methyl(any)+CNV = 524, +Mutation = 413, RNA+HM450+CNV+Mutation = 241).
-- Model-complexity cap: the survival model runs on the MAIN cohort (n = 524), not on the mutation-intersected subset. Its overall-survival event count is now MEASURED: **173 OS events** among the 522 usable main-cohort cases (33.1%), median follow-up 1188 d → an EPV-10 budget of **17 predictors**; restricted to a 5-year horizon (1825 d) the main cohort has **148 events** → cap **14**. (Reference: all 536 `colData` cases → 534 usable, 177 events, cap 17; the +Mutation subset n = 413 → cap 14.) Provenance: GitHub Actions run 30708943504, 2026-08-01, from `colData(mae)` on the same frozen 20160128 snapshot via this repo's `fn_load_mae`/`fn_qc_mae`/`fn_harmonise_ids`; event = `vital_status` ∈ {dead, deceased, 1}, time = `days_to_death` if event else `days_to_last_followup`. The measurement LICENSES the cap; it does not oblige the design to spend it — Module 4 stays a LOW-DIMENSIONAL model on factors/subtypes + a few clinical variables ONLY (EPV cap = 10 applied to the observed event count at fit time; **5 predictors actually wired**, comfortably under both 17 and 14). Never genome-wide feature selection.
+- Cohort-figure provenance: every count above is MEASURED from the frozen 2016 `curatedTCGAData` 2.0.1 snapshot (20160128) by GitHub Actions run 30642823359 on 2026-07-31, using this repo's own `fn_load_mae`/`fn_qc_mae`/`fn_harmonise_ids` on primary-tumour cases - NOT from the live GDC API. The two differ materially (e.g. the 2016 legacy MAF covers 417 cases, today's masked-somatic-mutation MAF only ~374), so never substitute a live-API number for a snapshot number. The cohort census was RE-VERIFIED with zero drift by run 30708943504 on 2026-08-01 (RNA+Methyl(any)+CNV = 524, +Mutation = 413, RNA+HM450+CNV+Mutation = 241).
+- Model-complexity cap: the survival model runs on the MAIN cohort (n = 524), not on the mutation-intersected subset. Its overall-survival event count is now MEASURED: **173 OS events** among the 522 usable main-cohort cases (33.1%), median follow-up 1188 d → an EPV-10 budget of **17 predictors**; restricted to a 5-year horizon (1825 d) the main cohort has **148 events** → cap **14**. (Reference: all 536 `colData` cases → 534 usable, 177 events, cap 17; the +Mutation subset n = 413 → cap 14.) Provenance: GitHub Actions run 30708943504, 2026-08-01, from `colData(mae)` on the same frozen 20160128 snapshot via this repo's `fn_load_mae`/`fn_qc_mae`/`fn_harmonise_ids`; event = `vital_status` ∈ {dead, deceased, 1}, time = `days_to_death` if event else `days_to_last_followup`. The measurement LICENSES the cap; it does not oblige the design to spend it - Module 4 stays a LOW-DIMENSIONAL model on factors/subtypes + a few clinical variables ONLY (EPV cap = 10 applied to the observed event count at fit time; **5 predictors actually wired**, comfortably under both 17 and 14). Never genome-wide feature selection.
 - Do NOT apply DESeq2::vst to KIRC_RNASeq2GeneNorm: it is RSEM upper-quartile normalised Level-3 data, not raw counts. Apply log2(x+1) + variable-gene filtering and label it exactly 'log-transformed normalised expression'. Do not rename the alternative STAR-count route into the research core.
 - Mutation is annotation, NOT a MOFA2 view: it is an external label for factor interpretation (which factor tracks BAP1/PBRM1 status) on the n=417 subset, reported with stratification. CNV enters as a GISTIC gene-level thresholded (continuous/ordinal, Gaussian) view.
 - iClusterPlus is CUT. MOFA2 is the main integration method; SNFtool is a cheap sensitivity analysis; 'consensus clustering' is reframed as a two-method (MOFA vs SNF) concordance check.
@@ -27,81 +27,81 @@
 
 ## File Structure
 
-- `_targets.R` — Top-level targets DAG: declares tar_option_set (packages, format), sources all R/functions_*.R, and wires every module's targets from mae_raw through dashboard_site.
-- `R/constants.R` — All magic values: published ccRCC mutation-frequency ranges, driver gene panel (VHL/PBRM1/SETD2/BAP1/MTOR/KDM5C), EPV cap, variable-gene/CpG counts, snapshot date 20160128, cohort-size thresholds.
-- `R/functions_utils.R` — Module 1 shared deterministic helpers: fn_harmonise_ids, fn_align_samples, fn_intersect_cases — the unit-tested utility layer.
-- `R/functions_ingest.R` — Module 1 ingest: fn_load_mae (curatedTCGAData 1.34.0 → MultiAssayExperiment), sample-ID harmonisation, QC, versioned RDS cache.
-- `R/functions_preprocess.R` — Module 1 preprocess: fn_log2_normalise_rna, fn_beta_to_mvalue, fn_merge_methyl_platforms (HM27+HM450 common CpGs), fn_prep_cnv, fn_top_variable — aligned n=524 matrices.
-- `R/functions_integrate.R` — Module 2 integration: fn_run_mofa (MOFA2 1.22.0), fn_run_snf (SNFtool 2.3.1), fn_extract_factors, fn_variance_explained, fn_assign_subtypes, fn_cluster_concordance, fn_annotate_mutation (BAP1/PBRM1 factor labels).
-- `R/functions_sanity.R` — Module 3 positive-control logic: fn_check_mutation_freq, fn_check_bap1_survival, fn_check_methyl_strata (m1–m4), fn_check_ccab_signature — returns structured pass/fail objects consumed by testthat.
-- `R/functions_survival.R` — Module 4 survival: fn_fit_cox, fn_fit_penalised_cox (glmnet 5.0), fn_fit_rsf (randomForestSRC 3.6.2) on factors/subtypes+clinical with held-out/nested-CV split and optimism reporting.
-- `R/functions_model_eval.R` — Module 4 evaluation reusing model-evaluation-from-scratch: fn_cindex, fn_calibration — C-index + calibration for survival models.
-- `R/functions_purity.R` — Module 6 confound guard: fn_estimate_purity (ESTIMATE on bulk expression) and fn_subtype_purity_test to check whether bulk subtypes are a purity/immune proxy before single-cell mapping.
-- `R/functions_gdc_live.R` — Module 5 live panel: fn_query_gdc (GDC REST API via httr for current TCGA-KIRC counts/clinical distribution) feeding the cron-refreshed dashboard panel; independent of the frozen research core.
-- `python/bap1_classifier.py` — Module 4 non-circular classifier: trains scikit-learn model predicting BAP1 mutation status (labels from n=417 subset) from expression features; reports CV AUROC + held-out AUROC.
-- `python/singlecell_qc.py` — Module 6 scanpy QC/clustering: reads GSE159115 10x H5, QC filtering, normalisation, clustering.
-- `python/singlecell_annotate.py` — Module 6: cell-type annotation and mapping of bulk subtype signatures onto single-cell programs (gated on the purity check).
-- `Dockerfile` — Reproducible container: R+Bioconductor 3.23, explicit Python + mofapy2, RETICULATE_PYTHON set, basilisk forced to external system env so no conda downloads at runtime.
-- `.dockerignore` — Excludes data caches, _targets store, and renv library from the Docker build context.
-- `requirements.txt` — Pinned Python dependencies: mofapy2, numpy, pandas, h5py, scipy, scikit-learn, scanpy.
-- `renv.lock` — Pinned R dependency lockfile at the exact versions in globalConstraints (Bioconductor 3.23 snapshot). STATUS: complete and measured — 218 packages, R 4.6.1, Bioconductor 3.23, generated by `renv::snapshot()` inside the container (GitHub Actions run 30708943504, 2026-08-01), including MOFA2 1.22.0, glmnet 5.0, curatedTCGAData 1.34.0, minfi 1.58.0. Not hand-authored, not partial.
-- `renv/activate.R` — renv bootstrap sourced by .Rprofile to activate the project library.
-- `renv/settings.json` — renv project settings (snapshot type, Bioconductor repo).
-- `.Rprofile` — Sources renv/activate.R and sets project options (RETICULATE_PYTHON, basilisk external dir).
-- `DESCRIPTION` — Declares R package dependencies so renv can resolve them; project metadata.
-- `config/params.yml` — Run parameters and flags: HEAVY_PULL flag guarding ExperimentHub/HM450 downloads, cohort-selection options, fixture-vs-full toggles.
-- `.lintr` — Lint config (single source of truth for CI + local): snake_case/SNAKE_CASE names, 100-col lines, `object_usage_linter` disabled because this is a `source()`-based targets project, not a package.
-- `.github/workflows/ci.yml` — CI: lint + testthat + pytest on subsampled fixtures + render Quarto dashboard from cached _targets/release assets; does NOT run the full pipeline.
-- `.github/workflows/pages.yml` — Builds and deploys the rendered Quarto site to GitHub Pages (lexiyao.github.io/kidney-cancer-multiomics).
-- `.github/workflows/cron.yml` — Weekly cron: refresh live-GDC panel + dependency/environment drift detection + container rebuild; never touches frozen research data.
-- `dashboard/_quarto.yml` — Quarto project config: site structure, output dir, Plotly/dashboard settings, Pages target.
-- `dashboard/index.qmd` — Site landing page: project motivation, skills-mapping table, results summary.
-- `dashboard/dashboard.qmd` — Interactive Quarto Dashboard (Plotly): subtypes, survival curves, factor loadings, gene views.
-- `dashboard/factors.qmd` — MOFA2 factor loadings and variance-explained-per-omics visualisations.
-- `dashboard/survival.qmd` — Survival curves and model-evaluation (C-index/calibration) figures.
-- `dashboard/live-gdc.qmd` — Live GDC panel rendering current TCGA-KIRC counts/clinical distribution from fn_query_gdc, refreshed by cron.
-- `dashboard/singlecell.qmd` — v1.1 single-cell page: annotation and bulk→single-cell mapping with the purity caveat. (Clustering was cut in review: a hard-coded-k KMeans whose output had no consumer — see the note in `python/singlecell_qc.py`.)
-- `dashboard/styles.css` — Dashboard styling.
-- `tests/testthat.R` — testthat entrypoint invoking the test suite.
-- `tests/testthat/helper-fixtures.R` — Loads subsampled fixtures from tests/fixtures/ for all R tests.
-- `tests/testthat/test-utils.R` — Unit tests for fn_harmonise_ids / fn_align_samples / fn_intersect_cases.
-- `tests/testthat/test-ingest.R` — Tests for MAE loading and QC on fixtures.
-- `tests/testthat/test-preprocess.R` — Tests for log2 normalisation, β→M-value, HM27/HM450 merge, variable filtering.
-- `tests/testthat/test-integrate.R` — Tests for MOFA factor extraction, SNF clustering, and concordance on fixtures.
-- `tests/testthat/test-sanity.R` — The credibility anchor: literature positive-control assertions (mutation freqs, BAP1 worse OS, m1–m4 strata, ccA/ccB separation).
-- `tests/testthat/test-survival.R` — Tests for Cox/penalised-Cox/RSF fitting, EPV cap enforcement, and C-index.
-- `tests/pytest/conftest.py` — pytest fixtures for the Python suite (subsampled expression + labels, small H5).
-- `tests/pytest/test_bap1_classifier.py` — Tests for the BAP1 classifier (non-circular labels, AUROC computation) on fixtures.
-- `tests/pytest/test_singlecell_qc.py` — Tests for scanpy QC/clustering helpers on a subsampled H5 fixture.
-- `tests/fixtures/make_fixtures.R` — Flag-guarded (HEAVY_PULL) regeneration of all subsampled fixtures from the full ExperimentHub pull; normally skipped in CI.
-- `tests/fixtures/kirc_mae_subset.rds` — Subsampled MultiAssayExperiment fixture (small case/feature subset) for R tests.
-- `tests/fixtures/rna_subset.rds` — Subsampled RNA matrix fixture.
-- `tests/fixtures/methyl_subset.rds` — Subsampled merged HM27/HM450 methylation fixture.
-- `tests/fixtures/cnv_subset.rds` — Subsampled CNV matrix fixture.
-- `tests/fixtures/mutation_subset.rds` — Subsampled mutation-annotation fixture (BAP1/PBRM1 status).
-- `tests/fixtures/gse159115_subset.h5` — Subsampled single-cell 10x H5 fixture for pytest.
-- `scripts/run_full_pipeline.R` — One-command local full run (targets::tar_make with HEAVY_PULL enabled).
-- `scripts/freeze_release_assets.R` — Packages the local full-run outputs / _targets cache as GitHub release assets for CI to render from.
-- `data/raw/.gitkeep` — Gitignored ExperimentHub / GDC download cache directory.
-- `data/processed/.gitkeep` — Gitignored processed intermediate RDS outputs.
-- `_targets/.gitkeep` — targets store (cache); committed or shipped as release asset so CI renders without recomputation.
-- `docs/design/design-spec.md` — The approved design spec (already exists).
-- `docs/architecture.md` — Module contracts / this shared-foundation interface reference for planners.
-- `docs/runtime.md` — Expected full-pipeline runtime and hardware, and the honest CI-scope statement.
-- `docs/talking-points.md` — Interview narrative: end-to-end story plus the §12 honest limitations.
-- `README.md` — Motivation, skills-mapping table, one-command Docker/targets run with runtime+hardware, results, figures, and stated limitations (CI ≠ full reproduction).
-- `.gitignore` — Ignores data/raw, data/processed, renv/library, large caches, and Python venv artifacts.
-- `LICENSE` — Open-source licence for the public repo.
+- `_targets.R` - Top-level targets DAG: declares tar_option_set (packages, format), sources all R/functions_*.R, and wires every module's targets from mae_raw through dashboard_site.
+- `R/constants.R` - All magic values: published ccRCC mutation-frequency ranges, driver gene panel (VHL/PBRM1/SETD2/BAP1/MTOR/KDM5C), EPV cap, variable-gene/CpG counts, snapshot date 20160128, cohort-size thresholds.
+- `R/functions_utils.R` - Module 1 shared deterministic helpers: fn_harmonise_ids, fn_align_samples, fn_intersect_cases - the unit-tested utility layer.
+- `R/functions_ingest.R` - Module 1 ingest: fn_load_mae (curatedTCGAData 1.34.0 → MultiAssayExperiment), sample-ID harmonisation, QC, versioned RDS cache.
+- `R/functions_preprocess.R` - Module 1 preprocess: fn_log2_normalise_rna, fn_beta_to_mvalue, fn_merge_methyl_platforms (HM27+HM450 common CpGs), fn_prep_cnv, fn_top_variable - aligned n=524 matrices.
+- `R/functions_integrate.R` - Module 2 integration: fn_run_mofa (MOFA2 1.22.0), fn_run_snf (SNFtool 2.3.1), fn_extract_factors, fn_variance_explained, fn_assign_subtypes, fn_cluster_concordance, fn_annotate_mutation (BAP1/PBRM1 factor labels).
+- `R/functions_sanity.R` - Module 3 positive-control logic: fn_check_mutation_freq, fn_check_bap1_survival, fn_check_methyl_strata (m1–m4), fn_check_ccab_signature - returns structured pass/fail objects consumed by testthat.
+- `R/functions_survival.R` - Module 4 survival: fn_fit_cox, fn_fit_penalised_cox (glmnet 5.0), fn_fit_rsf (randomForestSRC 3.6.2) on factors/subtypes+clinical with held-out/nested-CV split and optimism reporting.
+- `R/functions_model_eval.R` - Module 4 evaluation reusing model-evaluation-from-scratch: fn_cindex, fn_calibration - C-index + calibration for survival models.
+- `R/functions_purity.R` - Module 6 confound guard: fn_estimate_purity (ESTIMATE on bulk expression) and fn_subtype_purity_test to check whether bulk subtypes are a purity/immune proxy before single-cell mapping.
+- `R/functions_gdc_live.R` - Module 5 live panel: fn_query_gdc (GDC REST API via httr for current TCGA-KIRC counts/clinical distribution) feeding the cron-refreshed dashboard panel; independent of the frozen research core.
+- `python/bap1_classifier.py` - Module 4 non-circular classifier: trains scikit-learn model predicting BAP1 mutation status (labels from n=417 subset) from expression features; reports CV AUROC + held-out AUROC.
+- `python/singlecell_qc.py` - Module 6 scanpy QC/clustering: reads GSE159115 10x H5, QC filtering, normalisation, clustering.
+- `python/singlecell_annotate.py` - Module 6: cell-type annotation and mapping of bulk subtype signatures onto single-cell programs (gated on the purity check).
+- `Dockerfile` - Reproducible container: R+Bioconductor 3.23, explicit Python + mofapy2, RETICULATE_PYTHON set, basilisk forced to external system env so no conda downloads at runtime.
+- `.dockerignore` - Excludes data caches, _targets store, and renv library from the Docker build context.
+- `requirements.txt` - Pinned Python dependencies: mofapy2, numpy, pandas, h5py, scipy, scikit-learn, scanpy.
+- `renv.lock` - Pinned R dependency lockfile at the exact versions in globalConstraints (Bioconductor 3.23 snapshot). STATUS: complete and measured - 218 packages, R 4.6.1, Bioconductor 3.23, generated by `renv::snapshot()` inside the container (GitHub Actions run 30708943504, 2026-08-01), including MOFA2 1.22.0, glmnet 5.0, curatedTCGAData 1.34.0, minfi 1.58.0. Not hand-authored, not partial.
+- `renv/activate.R` - renv bootstrap sourced by .Rprofile to activate the project library.
+- `renv/settings.json` - renv project settings (snapshot type, Bioconductor repo).
+- `.Rprofile` - Sources renv/activate.R and sets project options (RETICULATE_PYTHON, basilisk external dir).
+- `DESCRIPTION` - Declares R package dependencies so renv can resolve them; project metadata.
+- `config/params.yml` - Run parameters and flags: HEAVY_PULL flag guarding ExperimentHub/HM450 downloads, cohort-selection options, fixture-vs-full toggles.
+- `.lintr` - Lint config (single source of truth for CI + local): snake_case/SNAKE_CASE names, 100-col lines, `object_usage_linter` disabled because this is a `source()`-based targets project, not a package.
+- `.github/workflows/ci.yml` - CI: lint + testthat + pytest on subsampled fixtures + render Quarto dashboard from cached _targets/release assets; does NOT run the full pipeline.
+- `.github/workflows/pages.yml` - Builds and deploys the rendered Quarto site to GitHub Pages (lexiyao.github.io/kidney-cancer-multiomics).
+- `.github/workflows/cron.yml` - Weekly cron: refresh live-GDC panel + dependency/environment drift detection + container rebuild; never touches frozen research data.
+- `dashboard/_quarto.yml` - Quarto project config: site structure, output dir, Plotly/dashboard settings, Pages target.
+- `dashboard/index.qmd` - Site landing page: project motivation, skills-mapping table, results summary.
+- `dashboard/dashboard.qmd` - Interactive Quarto Dashboard (Plotly): subtypes, survival curves, factor loadings, gene views.
+- `dashboard/factors.qmd` - MOFA2 factor loadings and variance-explained-per-omics visualisations.
+- `dashboard/survival.qmd` - Survival curves and model-evaluation (C-index/calibration) figures.
+- `dashboard/live-gdc.qmd` - Live GDC panel rendering current TCGA-KIRC counts/clinical distribution from fn_query_gdc, refreshed by cron.
+- `dashboard/singlecell.qmd` - v1.1 single-cell page: annotation and bulk→single-cell mapping with the purity caveat. (Clustering was cut in review: a hard-coded-k KMeans whose output had no consumer - see the note in `python/singlecell_qc.py`.)
+- `dashboard/styles.css` - Dashboard styling.
+- `tests/testthat.R` - testthat entrypoint invoking the test suite.
+- `tests/testthat/helper-fixtures.R` - Loads subsampled fixtures from tests/fixtures/ for all R tests.
+- `tests/testthat/test-utils.R` - Unit tests for fn_harmonise_ids / fn_align_samples / fn_intersect_cases.
+- `tests/testthat/test-ingest.R` - Tests for MAE loading and QC on fixtures.
+- `tests/testthat/test-preprocess.R` - Tests for log2 normalisation, β→M-value, HM27/HM450 merge, variable filtering.
+- `tests/testthat/test-integrate.R` - Tests for MOFA factor extraction, SNF clustering, and concordance on fixtures.
+- `tests/testthat/test-sanity.R` - The credibility anchor: literature positive-control assertions (mutation freqs, BAP1 worse OS, m1–m4 strata, ccA/ccB separation).
+- `tests/testthat/test-survival.R` - Tests for Cox/penalised-Cox/RSF fitting, EPV cap enforcement, and C-index.
+- `tests/pytest/conftest.py` - pytest fixtures for the Python suite (subsampled expression + labels, small H5).
+- `tests/pytest/test_bap1_classifier.py` - Tests for the BAP1 classifier (non-circular labels, AUROC computation) on fixtures.
+- `tests/pytest/test_singlecell_qc.py` - Tests for scanpy QC/clustering helpers on a subsampled H5 fixture.
+- `tests/fixtures/make_fixtures.R` - Flag-guarded (HEAVY_PULL) regeneration of all subsampled fixtures from the full ExperimentHub pull; normally skipped in CI.
+- `tests/fixtures/kirc_mae_subset.rds` - Subsampled MultiAssayExperiment fixture (small case/feature subset) for R tests.
+- `tests/fixtures/rna_subset.rds` - Subsampled RNA matrix fixture.
+- `tests/fixtures/methyl_subset.rds` - Subsampled merged HM27/HM450 methylation fixture.
+- `tests/fixtures/cnv_subset.rds` - Subsampled CNV matrix fixture.
+- `tests/fixtures/mutation_subset.rds` - Subsampled mutation-annotation fixture (BAP1/PBRM1 status).
+- `tests/fixtures/gse159115_subset.h5` - Subsampled single-cell 10x H5 fixture for pytest.
+- `scripts/run_full_pipeline.R` - One-command local full run (targets::tar_make with HEAVY_PULL enabled).
+- `scripts/freeze_release_assets.R` - Packages the local full-run outputs / _targets cache as GitHub release assets for CI to render from.
+- `data/raw/.gitkeep` - Gitignored ExperimentHub / GDC download cache directory.
+- `data/processed/.gitkeep` - Gitignored processed intermediate RDS outputs.
+- `_targets/.gitkeep` - targets store (cache); committed or shipped as release asset so CI renders without recomputation.
+- `docs/design/design-spec.md` - The approved design spec (already exists).
+- `docs/architecture.md` - Module contracts / this shared-foundation interface reference for planners.
+- `docs/runtime.md` - Expected full-pipeline runtime and hardware, and the honest CI-scope statement.
+- `docs/talking-points.md` - Interview narrative: end-to-end story plus the §12 honest limitations.
+- `README.md` - Motivation, skills-mapping table, one-command Docker/targets run with runtime+hardware, results, figures, and stated limitations (CI ≠ full reproduction).
+- `.gitignore` - Ignores data/raw, data/processed, renv/library, large caches, and Python venv artifacts.
+- `LICENSE` - Open-source licence for the public repo.
 
 ## Module Interfaces (contract)
 
-- **Module 0 — Scaffold** — Consumes: Nothing (bootstrap). Establishes the environment all later modules assume. | Produces: A runnable _targets.R skeleton, renv.lock + requirements.txt + Dockerfile with the MOFA2 basilisk/reticulate resolution (RETICULATE_PYTHON, BASILISK_EXTERNAL_DIR), R/constants.R, config/params.yml (HEAVY_PULL flag), .github/workflows/{ci,pages,cron}.yml (hello-world), and a Quarto→Pages deploy. Contract: every downstream target is defined in this _targets.R and every heavy pull is gated by the HEAVY_PULL flag.
-- **Module 1 — Ingest + preprocess** — Consumes: Scaffold environment + HEAVY_PULL flag; fn_* helpers in R/functions_utils.R. | Produces: targets: mae_raw (MultiAssayExperiment 1.38.0 from curatedTCGAData 1.34.0, snapshot 20160128), mae_qc, and aligned n=524 matrices rna_mat (log2(x+1) normalised expression — NOT vst), methyl_mat (M-values, HM27+HM450 merged on common CpGs, SNP/sex probes dropped), cnv_mat (GISTIC gene-level thresholded), plus mut_annot (BAP1/PBRM1/… status on the n=417 subset; 413 of those cases are inside the 524-case main cohort). All matrices share harmonised sample IDs on the common cohort.
-- **Module 2 — Integrate** — Consumes: rna_mat, methyl_mat, cnv_mat (the three MOFA views) and mut_annot (annotation only) from Module 1. | Produces: targets: mofa_model (MOFA2 1.22.0), mofa_factors (factor matrix, samples×factors), mofa_varexp (variance-explained per omics per factor), subtypes_mofa (subtype assignments), snf_clusters (SNFtool 2.3.1 sensitivity), concordance (MOFA-vs-SNF cluster agreement), and factor-to-mutation annotations (which factor tracks BAP1/PBRM1). Mutation is never a view; iClusterPlus is absent.
-- **Module 3 — Sanity** — Consumes: mut_annot, subtypes_mofa, methyl_mat, rna_mat, and survival/clinical from Module 1; mofa_factors from Module 2. | Produces: target sanity_results (structured pass/fail) surfaced as real testthat assertions in tests/testthat/test-sanity.R: VHL/PBRM1/SETD2/BAP1 mutation frequencies within published ccRCC ranges, BAP1-mutant worse OS, recovery of KIRC methylation strata m1–m4, ccA/ccB signature separation. This is the credibility anchor and is built early.
-- **Module 4 — Model** — Consumes: mofa_factors + subtypes_mofa (Module 2) + clinical variables (Module 1) for survival; rna_mat + mut_annot BAP1 labels (n=417 subset, 413 inside the 524-case cohort) for the classifier. | Produces: targets: cox_fit / penalised-Cox (glmnet 5.0) / RSF (randomForestSRC 3.6.2) on the 524-case main cohort, with the predictor count capped at `floor(observed_OS_events / EPV_CAP)` computed at fit time (5 predictors wired), with held-out/nested-CV split, survival_metrics (C-index + calibration via reused fn_cindex/fn_calibration), and bap1_auroc (scikit-learn BAP1-from-expression CV + held-out AUROC via python/bap1_classifier.py). Subtype→survival optimism is controlled by the split; the classifier is non-circular.
-- **Module 5 — Dashboard + README** — Consumes: mofa_factors, mofa_varexp, subtypes_mofa, concordance (Module 2); survival_metrics, bap1_auroc (Module 4); sanity_results (Module 3); gdc_live_panel from fn_query_gdc (independent live source). | Produces: target dashboard_site: the rendered Quarto Dashboard + Plotly pages (dashboard/*.qmd) with subtypes, survival curves, factor loadings, gene views, and the live-GDC panel, deployed to GitHub Pages; plus README.md (skills-mapping table, one-command run with runtime+hardware, limitations) and docs/talking-points.md. CI renders this from the frozen _targets/release cache.
-- **Module 6 — Single-cell (v1.1, non-blocking)** — Consumes: subtypes_mofa + rna_mat (bulk subtype signatures) from Module 2/1, and the ESTIMATE/purity result from R/functions_purity.R (fn_subtype_purity_test) as a mandatory gate; GSE159115 10x H5 (flag-guarded pull). | Produces: targets: purity_check (whether subtypes are a purity/immune proxy), sc_object (scanpy QC/clustered/annotated), and a bulk→single-cell subtype-signature mapping (re-framed if purity_check fails), surfaced on dashboard/singlecell.qmd. Runs on a separate branch and cannot block release of Modules 0–5.
+- **Module 0 - Scaffold** - Consumes: Nothing (bootstrap). Establishes the environment all later modules assume. | Produces: A runnable _targets.R skeleton, renv.lock + requirements.txt + Dockerfile with the MOFA2 basilisk/reticulate resolution (RETICULATE_PYTHON, BASILISK_EXTERNAL_DIR), R/constants.R, config/params.yml (HEAVY_PULL flag), .github/workflows/{ci,pages,cron}.yml (hello-world), and a Quarto→Pages deploy. Contract: every downstream target is defined in this _targets.R and every heavy pull is gated by the HEAVY_PULL flag.
+- **Module 1 - Ingest + preprocess** - Consumes: Scaffold environment + HEAVY_PULL flag; fn_* helpers in R/functions_utils.R. | Produces: targets: mae_raw (MultiAssayExperiment 1.38.0 from curatedTCGAData 1.34.0, snapshot 20160128), mae_qc, and aligned n=524 matrices rna_mat (log2(x+1) normalised expression - NOT vst), methyl_mat (M-values, HM27+HM450 merged on common CpGs, SNP/sex probes dropped), cnv_mat (GISTIC gene-level thresholded), plus mut_annot (BAP1/PBRM1/… status on the n=417 subset; 413 of those cases are inside the 524-case main cohort). All matrices share harmonised sample IDs on the common cohort.
+- **Module 2 - Integrate** - Consumes: rna_mat, methyl_mat, cnv_mat (the three MOFA views) and mut_annot (annotation only) from Module 1. | Produces: targets: mofa_model (MOFA2 1.22.0), mofa_factors (factor matrix, samples×factors), mofa_varexp (variance-explained per omics per factor), subtypes_mofa (subtype assignments), snf_clusters (SNFtool 2.3.1 sensitivity), concordance (MOFA-vs-SNF cluster agreement), and factor-to-mutation annotations (which factor tracks BAP1/PBRM1). Mutation is never a view; iClusterPlus is absent.
+- **Module 3 - Sanity** - Consumes: mut_annot, subtypes_mofa, methyl_mat, rna_mat, and survival/clinical from Module 1; mofa_factors from Module 2. | Produces: target sanity_results (structured pass/fail) surfaced as real testthat assertions in tests/testthat/test-sanity.R: VHL/PBRM1/SETD2/BAP1 mutation frequencies within published ccRCC ranges, BAP1-mutant worse OS, recovery of KIRC methylation strata m1–m4, ccA/ccB signature separation. This is the credibility anchor and is built early.
+- **Module 4 - Model** - Consumes: mofa_factors + subtypes_mofa (Module 2) + clinical variables (Module 1) for survival; rna_mat + mut_annot BAP1 labels (n=417 subset, 413 inside the 524-case cohort) for the classifier. | Produces: targets: cox_fit / penalised-Cox (glmnet 5.0) / RSF (randomForestSRC 3.6.2) on the 524-case main cohort, with the predictor count capped at `floor(observed_OS_events / EPV_CAP)` computed at fit time (5 predictors wired), with held-out/nested-CV split, survival_metrics (C-index + calibration via reused fn_cindex/fn_calibration), and bap1_auroc (scikit-learn BAP1-from-expression CV + held-out AUROC via python/bap1_classifier.py). Subtype→survival optimism is controlled by the split; the classifier is non-circular.
+- **Module 5 - Dashboard + README** - Consumes: mofa_factors, mofa_varexp, subtypes_mofa, concordance (Module 2); survival_metrics, bap1_auroc (Module 4); sanity_results (Module 3); gdc_live_panel from fn_query_gdc (independent live source). | Produces: target dashboard_site: the rendered Quarto Dashboard + Plotly pages (dashboard/*.qmd) with subtypes, survival curves, factor loadings, gene views, and the live-GDC panel, deployed to GitHub Pages; plus README.md (skills-mapping table, one-command run with runtime+hardware, limitations) and docs/talking-points.md. CI renders this from the frozen _targets/release cache.
+- **Module 6 - Single-cell (v1.1, non-blocking)** - Consumes: subtypes_mofa + rna_mat (bulk subtype signatures) from Module 2/1, and the ESTIMATE/purity result from R/functions_purity.R (fn_subtype_purity_test) as a mandatory gate; GSE159115 10x H5 (flag-guarded pull). | Produces: targets: purity_check (whether subtypes are a purity/immune proxy), sc_object (scanpy QC/clustered/annotated), and a bulk→single-cell subtype-signature mapping (re-framed if purity_check fails), surfaced on dashboard/singlecell.qmd. Runs on a separate branch and cannot block release of Modules 0–5.
 
 ---
 
@@ -111,7 +111,7 @@ This phase establishes the reproducible environment every later module assumes: 
 
 ---
 
-### Task 0.1 — Repository skeleton, ignore rules, licence
+### Task 0.1 - Repository skeleton, ignore rules, licence
 
 **Files:**
 - Create: `.gitignore`, `LICENSE`, `README.md`, `data/raw/.gitkeep`, `data/processed/.gitkeep`, `_targets/.gitkeep`, `tests/fixtures/.gitkeep`
@@ -240,7 +240,7 @@ Expected output: empty (clean tree).
 
 ---
 
-### Task 0.2 — `R/constants.R` + testthat harness (TDD)
+### Task 0.2 - `R/constants.R` + testthat harness (TDD)
 
 **Files:**
 - Create: `R/constants.R`, `tests/testthat.R`, `tests/testthat/helper-fixtures.R`, `tests/testthat/test-utils.R`
@@ -249,7 +249,7 @@ Expected output: empty (clean tree).
 **Interfaces:**
 - Consumes: nothing.
 - Produces: constants `SNAPSHOT_DATE`, `GENOME_BUILD`, `DRIVER_GENES`, `METHYL_PLATFORMS`, `EPV_CAP`, `COHORT_SIZES` (all Module 3/4 consume these); the testthat entrypoint + `helper-fixtures.R` that auto-sources `R/constants.R` and any `R/functions_*.R`, exposing `FIXTURE_DIR`.
-- **Does NOT produce a mutation-frequency range constant.** The single published anchor is `PUBLISHED_MUT_FREQ_RANGES`, defined in the Module 3 block by **Task 3.1**, and it must not be duplicated here — see the Step 4 note below.
+- **Does NOT produce a mutation-frequency range constant.** The single published anchor is `PUBLISHED_MUT_FREQ_RANGES`, defined in the Module 3 block by **Task 3.1**, and it must not be duplicated here - see the Step 4 note below.
 
 - [ ] **Step 1: Write the failing constants smoke test in `tests/testthat/test-utils.R`.**
 ```r
@@ -299,7 +299,7 @@ invisible(lapply(fn_files, source))
 FIXTURE_DIR <- file.path(root, "tests", "fixtures")
 ```
 
-- [ ] **Step 3: Run it — verify it FAILS (constants missing).**
+- [ ] **Step 3: Run it - verify it FAILS (constants missing).**
 ```bash
 cd "$REPO_ROOT"   # the repo checkout; every command below assumes the repo root
 Rscript tests/testthat.R
@@ -356,7 +356,7 @@ COHORT_SIZES <- list(
 )
 ```
 
-- [ ] **Step 5: Run it — verify it PASSES.**
+- [ ] **Step 5: Run it - verify it PASSES.**
 ```bash
 Rscript tests/testthat.R
 ```
@@ -370,17 +370,17 @@ git commit -q -m "test: seed constants and testthat harness"
 
 ---
 
-### Task 0.3 — `renv` init, `DESCRIPTION`, `.Rprofile` (basilisk/reticulate resolution)
+### Task 0.3 - `renv` init, `DESCRIPTION`, `.Rprofile` (basilisk/reticulate resolution)
 
 **Files:**
 - Create: `DESCRIPTION`, `renv/settings.json`, `renv.lock` (generated), `renv/activate.R` (generated), `.Rprofile`
 - Test: lockfile version-pin assertion
 
-**Lockfile status (measured, run 30708943504, 2026-08-01):** `renv.lock` is a COMPLETE lockfile generated by `renv::snapshot()` inside `bioconductor/bioconductor_docker:RELEASE_3_23` — **218 packages**, R **4.6.1**, Bioconductor **3.23**, including MOFA2 1.22.0, glmnet 5.0, curatedTCGAData 1.34.0 and minfi 1.58.0. It is no longer hand-authored, partial, or deferred; the steps below document how it was produced and how it is re-verified.
+**Lockfile status (measured, run 30708943504, 2026-08-01):** `renv.lock` is a COMPLETE lockfile generated by `renv::snapshot()` inside `bioconductor/bioconductor_docker:RELEASE_3_23` - **218 packages**, R **4.6.1**, Bioconductor **3.23**, including MOFA2 1.22.0, glmnet 5.0, curatedTCGAData 1.34.0 and minfi 1.58.0. It is no longer hand-authored, partial, or deferred; the steps below document how it was produced and how it is re-verified.
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: pinned R library at Bioconductor 3.23 (`curatedTCGAData` 1.34.0, `MultiAssayExperiment` 1.38.0, `MOFA2` 1.22.0, `SNFtool` 2.3.1, `glmnet` 5.0, `randomForestSRC` 3.6.2, `survival` 3.8-9); `.Rprofile` that sets `options(basilisk.useSystemDir = TRUE)` and honours `RETICULATE_PYTHON` — the R-side half of the MOFA2 conflict resolution consumed by Module 2's `fn_run_mofa`.
+- Produces: pinned R library at Bioconductor 3.23 (`curatedTCGAData` 1.34.0, `MultiAssayExperiment` 1.38.0, `MOFA2` 1.22.0, `SNFtool` 2.3.1, `glmnet` 5.0, `randomForestSRC` 3.6.2, `survival` 3.8-9); `.Rprofile` that sets `options(basilisk.useSystemDir = TRUE)` and honours `RETICULATE_PYTHON` - the R-side half of the MOFA2 conflict resolution consumed by Module 2's `fn_run_mofa`.
 
 - [ ] **Step 1: Write `DESCRIPTION` (renv reads it for explicit snapshots).**
 ```
@@ -493,7 +493,7 @@ git commit -q -m "chore: pin renv library at Bioconductor 3.23 and set basilisk 
 
 ---
 
-### Task 0.4 — Pinned Python dependencies
+### Task 0.4 - Pinned Python dependencies
 
 **Files:**
 - Create: `requirements.txt`
@@ -501,7 +501,7 @@ git commit -q -m "chore: pin renv library at Bioconductor 3.23 and set basilisk 
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: the pinned Python env (`mofapy2`, `numpy`, `pandas`, `h5py`, `scipy`, `scikit-learn`, `scanpy`) — the Python-side half of the MOFA2 resolution consumed by the Dockerfile (Task 0.8) and `python/bap1_classifier.py` (Module 4).
+- Produces: the pinned Python env (`mofapy2`, `numpy`, `pandas`, `h5py`, `scipy`, `scikit-learn`, `scanpy`) - the Python-side half of the MOFA2 resolution consumed by the Dockerfile (Task 0.8) and `python/bap1_classifier.py` (Module 4).
 
 - [ ] **Step 1: Write `requirements.txt`.**
 ```text
@@ -532,7 +532,7 @@ git commit -q -m "chore: pin Python dependencies for MOFA2, classifier and scanp
 
 ---
 
-### Task 0.5 — `config/params.yml` (HEAVY_PULL flag)
+### Task 0.5 - `config/params.yml` (HEAVY_PULL flag)
 
 **Files:**
 - Create: `config/params.yml`
@@ -540,7 +540,7 @@ git commit -q -m "chore: pin Python dependencies for MOFA2, classifier and scanp
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `heavy_pull` (bool), `cohort.methylation_platforms`, `cohort.require_mutation`, `snapshot.date`, `fixtures.use_fixtures` — the run-flag contract every heavy pull in Modules 1/2/6 gates on.
+- Produces: `heavy_pull` (bool), `cohort.methylation_platforms`, `cohort.require_mutation`, `snapshot.date`, `fixtures.use_fixtures` - the run-flag contract every heavy pull in Modules 1/2/6 gates on.
 
 - [ ] **Step 1: Write `config/params.yml`.**
 ```yaml
@@ -583,7 +583,7 @@ git commit -q -m "chore: add run params with HEAVY_PULL flag and cohort config"
 
 ---
 
-### Task 0.6 — pytest harness + fixture-regeneration entrypoint (TDD)
+### Task 0.6 - pytest harness + fixture-regeneration entrypoint (TDD)
 
 **Files:**
 - Create: `tests/pytest/conftest.py`, `tests/pytest/test_bap1_classifier.py`, `tests/fixtures/make_fixtures.R`
@@ -619,7 +619,7 @@ def test_fixture_dir_exists(fixture_dir):
     assert fixture_dir.is_dir()
 ```
 
-- [ ] **Step 2: Run it — verify it FAILS (no conftest → `fixture_dir` unknown).**
+- [ ] **Step 2: Run it - verify it FAILS (no conftest → `fixture_dir` unknown).**
 ```bash
 cd "$REPO_ROOT"   # the repo checkout; every command below assumes the repo root
 python3 -m pytest tests/pytest -q
@@ -685,7 +685,7 @@ if (identical(environment(), globalenv())) {
 }
 ```
 
-- [ ] **Step 5: Run pytest — verify it PASSES.**
+- [ ] **Step 5: Run pytest - verify it PASSES.**
 ```bash
 python3 -m pytest tests/pytest -q -m 'not heavy'
 ```
@@ -699,7 +699,7 @@ git commit -q -m "test: seed pytest harness and HEAVY_PULL fixture entrypoint"
 
 ---
 
-### Task 0.7 — `_targets.R` skeleton
+### Task 0.7 - `_targets.R` skeleton
 
 **Files:**
 - Create: `_targets.R`
@@ -707,7 +707,7 @@ git commit -q -m "test: seed pytest harness and HEAVY_PULL fixture entrypoint"
 
 **Interfaces:**
 - Consumes: `config/params.yml`, `R/constants.R`, `R/functions_*.R` (sourced; none exist yet).
-- Produces: the top-level globals `config` (from `config/params.yml`) and `HEAVY_PULL` (bool) that every appended target references at parse time — Module 1's `mae_raw` gates its `tar_cue` on `HEAVY_PULL`, Module 6 reads `config$singlecell`; plus target `scaffold_env_check` (list: `r_version`, `reticulate_python`, `snapshot_date`, `heavy_pull`). Contract: every downstream target is declared in this file; Module 1 appends `mae_raw` etc. onto this list.
+- Produces: the top-level globals `config` (from `config/params.yml`) and `HEAVY_PULL` (bool) that every appended target references at parse time - Module 1's `mae_raw` gates its `tar_cue` on `HEAVY_PULL`, Module 6 reads `config$singlecell`; plus target `scaffold_env_check` (list: `r_version`, `reticulate_python`, `snapshot_date`, `heavy_pull`). Contract: every downstream target is declared in this file; Module 1 appends `mae_raw` etc. onto this list.
 
 - [ ] **Step 1: Write `_targets.R`.**
 ```r
@@ -770,7 +770,7 @@ git commit -q -m "feat: add targets DAG skeleton with environment-check target"
 
 ---
 
-### Task 0.8 — Dockerfile (MOFA2 basilisk/reticulate resolution) + `.dockerignore`
+### Task 0.8 - Dockerfile (MOFA2 basilisk/reticulate resolution) + `.dockerignore`
 
 **Files:**
 - Create: `Dockerfile`, `.dockerignore`
@@ -856,7 +856,7 @@ git commit -q -m "feat: add Dockerfile resolving MOFA2 basilisk/reticulate confl
 
 ---
 
-### Task 0.9 — CI hello-world (`ci.yml`: lint + tests, NOT full pipeline)
+### Task 0.9 - CI hello-world (`ci.yml`: lint + tests, NOT full pipeline)
 
 **Files:**
 - Create: `.github/workflows/ci.yml`
@@ -932,7 +932,7 @@ git commit -q -m "ci: add lint + fixture-test job (no full pipeline)"
 
 ---
 
-### Task 0.10 — Quarto site scaffold + Pages deploy (`pages.yml`)
+### Task 0.10 - Quarto site scaffold + Pages deploy (`pages.yml`)
 
 **Files:**
 - Create: `dashboard/_quarto.yml`, `dashboard/index.qmd`, `dashboard/dashboard.qmd`, `dashboard/styles.css`, `.github/workflows/pages.yml`
@@ -1068,7 +1068,7 @@ Expected: `pages.yml valid`.
 
 ---
 
-### Task 0.11 — Weekly cron hello-world (`cron.yml`)
+### Task 0.11 - Weekly cron hello-world (`cron.yml`)
 
 **Files:**
 - Create: `.github/workflows/cron.yml`
@@ -1076,7 +1076,7 @@ Expected: `pages.yml valid`.
 
 **Interfaces:**
 - Consumes: nothing (Module 5 wires `fn_query_gdc` into the live-panel refresh).
-- Produces: a scheduled job scaffold whose stated duties are live-GDC panel refresh + dependency/env drift detection + container rebuild — and which never touches the frozen research data (spec §9).
+- Produces: a scheduled job scaffold whose stated duties are live-GDC panel refresh + dependency/env drift detection + container rebuild - and which never touches the frozen research data (spec §9).
 
 - [ ] **Step 1: Write `.github/workflows/cron.yml`.**
 ```yaml
@@ -1112,7 +1112,7 @@ Expected: `cron.yml valid`.
 
 ---
 
-### Task 0.12 — Architecture reference doc
+### Task 0.12 - Architecture reference doc
 
 **Files:**
 - Create: `docs/architecture.md`
@@ -1172,24 +1172,24 @@ Expected: `architecture doc OK`.
 - `Rscript -e 'targets::tar_make()'` completes `scaffold_env_check`, and `_targets.R` defines the `config` + `HEAVY_PULL` globals downstream modules parse against.
 - `docker build` succeeds and `reticulate::import("mofapy2")` resolves via `/usr/bin/python3` with no conda download.
 - `quarto render dashboard` produces `dashboard/_site/index.html`.
-- `renv.lock` pins MOFA2 1.22.0 / curatedTCGAData 1.34.0 / MultiAssayExperiment 1.38.0 / SNFtool 2.3.1 / glmnet 5.0. VERIFIED: the committed lock is a complete `renv::snapshot()` product — 218 packages, R 4.6.1, Bioconductor 3.23 (run 30708943504, 2026-08-01), also covering minfi 1.58.0.
+- `renv.lock` pins MOFA2 1.22.0 / curatedTCGAData 1.34.0 / MultiAssayExperiment 1.38.0 / SNFtool 2.3.1 / glmnet 5.0. VERIFIED: the committed lock is a complete `renv::snapshot()` product - 218 packages, R 4.6.1, Bioconductor 3.23 (run 30708943504, 2026-08-01), also covering minfi 1.58.0.
 - All three workflows (`ci`, `pages`, `cron`) parse as valid YAML.
 
 ---
 
 ## Phase 1: Ingest + preprocess
 
-This phase turns the frozen `curatedTCGAData` 1.34.0 KIRC snapshot (20160128, hg19) into four sample-aligned, MOFA2-ready matrices on the **524-case** RNA ∩ Methylation(HM27∪HM450) ∩ CNV cohort (measured on the snapshot, see Global Constraints), plus a mutation-status annotation on its `n=417` subset. Every deterministic helper is unit-tested on synthetic/subsampled fixtures (TDD); the pipeline wiring is validated by a `tar_make()` run that reaches the targets and asserts the recorded cohort size. All new work assumes the Module 0 scaffold (`_targets.R`, `R/constants.R` with `DRIVER_GENES`/`SNAPSHOT_DATE`, `config/params.yml` with the `HEAVY_PULL` flag, `renv`, `DESCRIPTION`, the shared `tests/testthat/helper-fixtures.R` that sources `R/constants.R` + all `R/functions_*.R` and defines `FIXTURE_DIR`, `tests/testthat.R`) already exists. Phase 1 also **adds Bioconductor dependencies** to `DESCRIPTION`/`renv.lock` (`minfi`, `IlluminaHumanMethylation450kanno.ilmn12.hg19`, `RaggedExperiment`, `SummarizedExperiment`) — see Task 1.1 — so the `HEAVY_PULL` run resolves under `renv::restore()` in Docker/CI.
+This phase turns the frozen `curatedTCGAData` 1.34.0 KIRC snapshot (20160128, hg19) into four sample-aligned, MOFA2-ready matrices on the **524-case** RNA ∩ Methylation(HM27∪HM450) ∩ CNV cohort (measured on the snapshot, see Global Constraints), plus a mutation-status annotation on its `n=417` subset. Every deterministic helper is unit-tested on synthetic/subsampled fixtures (TDD); the pipeline wiring is validated by a `tar_make()` run that reaches the targets and asserts the recorded cohort size. All new work assumes the Module 0 scaffold (`_targets.R`, `R/constants.R` with `DRIVER_GENES`/`SNAPSHOT_DATE`, `config/params.yml` with the `HEAVY_PULL` flag, `renv`, `DESCRIPTION`, the shared `tests/testthat/helper-fixtures.R` that sources `R/constants.R` + all `R/functions_*.R` and defines `FIXTURE_DIR`, `tests/testthat.R`) already exists. Phase 1 also **adds Bioconductor dependencies** to `DESCRIPTION`/`renv.lock` (`minfi`, `IlluminaHumanMethylation450kanno.ilmn12.hg19`, `RaggedExperiment`, `SummarizedExperiment`) - see Task 1.1 - so the `HEAVY_PULL` run resolves under `renv::restore()` in Docker/CI.
 
 ---
 
-### Task 1.1 — Module-1 constants + package dependencies
+### Task 1.1 - Module-1 constants + package dependencies
 
 **Files:**
 - Modify: `R/constants.R`
 - Modify: `DESCRIPTION` (add Bioconductor Imports)
 - Modify: `renv.lock` (via `renv::snapshot()`)
-- Test: (none — constants exercised by later tasks)
+- Test: (none - constants exercised by later tasks)
 
 **Interfaces:**
 - Consumes: existing `DRIVER_GENES`, `SNAPSHOT_DATE` (Module 0).
@@ -1243,7 +1243,7 @@ Note: `estimate` (Module 6) installs from R-Forge and is skip-guarded; it is int
 
 ---
 
-### Task 1.2 — `fn_harmonise_ids` (TCGA barcode → case/sample ID)
+### Task 1.2 - `fn_harmonise_ids` (TCGA barcode → case/sample ID)
 
 **Files:**
 - Create: `R/functions_utils.R`
@@ -1302,7 +1302,7 @@ fn_harmonise_ids <- function(barcodes, level = c("patient", "sample")) {
 
 ---
 
-### Task 1.3 — `fn_intersect_cases` (common-cohort intersection)
+### Task 1.3 - `fn_intersect_cases` (common-cohort intersection)
 
 **Files:**
 - Modify: `R/functions_utils.R`
@@ -1357,7 +1357,7 @@ fn_intersect_cases <- function(id_lists) {
 
 ---
 
-### Task 1.4 — `fn_align_samples` (dedupe + reorder to common cohort)
+### Task 1.4 - `fn_align_samples` (dedupe + reorder to common cohort)
 
 **Files:**
 - Modify: `R/functions_utils.R`
@@ -1419,7 +1419,7 @@ fn_align_samples <- function(mat, common_ids) {
 
 ---
 
-### Task 1.5 — Synthetic MAE fixture generator + append `load_fixture` to the shared helper
+### Task 1.5 - Synthetic MAE fixture generator + append `load_fixture` to the shared helper
 
 **Files:**
 - Create: `tests/fixtures/make_fixtures.R`
@@ -1509,7 +1509,7 @@ cat("fixtures written to", fixture_dir, "\n")
 
 - [ ] **Step 2: Generate the committed fixtures** (synthetic, no download): `Rscript tests/fixtures/make_fixtures.R`
   Expected output: `fixtures written to tests/fixtures`
-- [ ] **Step 3: Append `load_fixture` to the existing `tests/testthat/helper-fixtures.R`** (do NOT overwrite the Phase 0 sourcing of `R/constants.R` + `R/functions_*.R` or the `FIXTURE_DIR` definition — this file is loaded by testthat before every test and is what supplies the constants and `fn_*` symbols):
+- [ ] **Step 3: Append `load_fixture` to the existing `tests/testthat/helper-fixtures.R`** (do NOT overwrite the Phase 0 sourcing of `R/constants.R` + `R/functions_*.R` or the `FIXTURE_DIR` definition - this file is loaded by testthat before every test and is what supplies the constants and `fn_*` symbols):
 
 ```r
 # Loads committed subsampled fixtures for the R test suite.
@@ -1528,7 +1528,7 @@ load_fixture <- function(name) {
 
 ---
 
-### Task 1.6 — `fn_load_mae` + `fn_qc_mae` (ingest)
+### Task 1.6 - `fn_load_mae` + `fn_qc_mae` (ingest)
 
 **Files:**
 - Create: `R/functions_ingest.R`
@@ -1536,7 +1536,7 @@ load_fixture <- function(name) {
 
 **Interfaces:**
 - Consumes: `CURATED_CANCER`, `CURATED_VERSION`, `CURATED_ASSAYS`, `PRIMARY_TUMOUR_CODE`, `fn_harmonise_ids`.
-- Produces: `fn_load_mae() -> MultiAssayExperiment` (pulls curatedTCGAData 1.34.0, snapshot 20160128 — HEAVY only) and `fn_qc_mae(mae: MultiAssayExperiment) -> MultiAssayExperiment` (drops non-primary-tumour columns; deterministic, fixture-testable).
+- Produces: `fn_load_mae() -> MultiAssayExperiment` (pulls curatedTCGAData 1.34.0, snapshot 20160128 - HEAVY only) and `fn_qc_mae(mae: MultiAssayExperiment) -> MultiAssayExperiment` (drops non-primary-tumour columns; deterministic, fixture-testable).
 
 - [ ] **Step 1: Write the failing test** in `tests/testthat/test-ingest.R`:
 
@@ -1594,7 +1594,7 @@ fn_qc_mae <- function(mae) {
 
 ---
 
-### Task 1.7 — `fn_log2_normalise_rna` (RSEM → log-transformed normalised expression, NOT vst)
+### Task 1.7 - `fn_log2_normalise_rna` (RSEM → log-transformed normalised expression, NOT vst)
 
 **Files:**
 - Create: `R/functions_preprocess.R`
@@ -1656,7 +1656,7 @@ fn_log2_normalise_rna <- function(rsem_mat) {
 
 ---
 
-### Task 1.8 — `fn_beta_to_mvalue` (methylation β → M-values)
+### Task 1.8 - `fn_beta_to_mvalue` (methylation β → M-values)
 
 **Files:**
 - Modify: `R/functions_preprocess.R`
@@ -1716,7 +1716,7 @@ fn_beta_to_mvalue <- function(beta_mat, eps = MVALUE_CLAMP_EPS) {
 
 ---
 
-### Task 1.9 — `fn_drop_bad_probes` (drop SNP-adjacent + sex-chromosome CpGs)
+### Task 1.9 - `fn_drop_bad_probes` (drop SNP-adjacent + sex-chromosome CpGs)
 
 **Files:**
 - Modify: `R/functions_preprocess.R`
@@ -1771,7 +1771,7 @@ fn_drop_bad_probes <- function(mval_mat, annotation) {
 
 ---
 
-### Task 1.10 — `fn_merge_methyl_platforms` (HM27 + HM450 on common CpGs)
+### Task 1.10 - `fn_merge_methyl_platforms` (HM27 + HM450 on common CpGs)
 
 **Files:**
 - Modify: `R/functions_preprocess.R`
@@ -1832,7 +1832,7 @@ fn_merge_methyl_platforms <- function(hm27_mat, hm450_mat) {
 
 ---
 
-### Task 1.11 — `fn_prep_cnv` (GISTIC gene-level thresholded)
+### Task 1.11 - `fn_prep_cnv` (GISTIC gene-level thresholded)
 
 **Files:**
 - Modify: `R/functions_preprocess.R`
@@ -1882,7 +1882,7 @@ fn_prep_cnv <- function(gistic_mat) {
 
 ---
 
-### Task 1.12 — `fn_top_variable` (top-variance feature filter)
+### Task 1.12 - `fn_top_variable` (top-variance feature filter)
 
 **Files:**
 - Modify: `R/functions_preprocess.R`
@@ -1942,7 +1942,7 @@ fn_top_variable <- function(mat, n_top) {
 
 ---
 
-### Task 1.13 — `fn_extract_mutation_status` (BAP1/PBRM1/… annotation data.frame, n=417 subset)
+### Task 1.13 - `fn_extract_mutation_status` (BAP1/PBRM1/… annotation data.frame, n=417 subset)
 
 **Files:**
 - Modify: `R/functions_ingest.R`
@@ -1950,7 +1950,7 @@ fn_top_variable <- function(mat, n_top) {
 
 **Interfaces:**
 - Consumes: `DRIVER_GENES`, `SILENT_CLASSES`, `fn_harmonise_ids`.
-- Produces: `fn_extract_mutation_status(mae: MultiAssayExperiment, genes = DRIVER_GENES) -> data.frame` — the **canonical mutation-annotation shape**: a `data.frame` with a character `sample_id` column (harmonised patient IDs, one row per patient) plus one integer `0/1` non-silent-mutation column per driver gene. This is the exact shape Module 2 `fn_annotate_mutation` (merges on `sample_id`) and Module 3 `fn_check_mutation_freq` / `fn_check_bap1_survival` (index `mut_annot$sample_id` and `mut_annot[[gene]]`) consume; Module 4 aligns via `match(common, mut_annot$sample_id)`. Annotation only — never a MOFA view.
+- Produces: `fn_extract_mutation_status(mae: MultiAssayExperiment, genes = DRIVER_GENES) -> data.frame` - the **canonical mutation-annotation shape**: a `data.frame` with a character `sample_id` column (harmonised patient IDs, one row per patient) plus one integer `0/1` non-silent-mutation column per driver gene. This is the exact shape Module 2 `fn_annotate_mutation` (merges on `sample_id`) and Module 3 `fn_check_mutation_freq` / `fn_check_bap1_survival` (index `mut_annot$sample_id` and `mut_annot[[gene]]`) consume; Module 4 aligns via `match(common, mut_annot$sample_id)`. Annotation only - never a MOFA view.
 
 - [ ] **Step 1: Write the failing test** (append to `tests/testthat/test-ingest.R`):
 
@@ -2056,7 +2056,7 @@ fn_extract_mutation_status <- function(mae, genes = DRIVER_GENES) {
 
 ---
 
-### Task 1.14 — Wire Module-1 targets + methylation annotation loader + `tar_make` cohort validation
+### Task 1.14 - Wire Module-1 targets + methylation annotation loader + `tar_make` cohort validation
 
 **Files:**
 - Modify: `_targets.R`
@@ -2139,7 +2139,7 @@ fn_load_methyl_annotation <- function() {
 
 - [ ] **Step 3: Validate the DAG builds** (no execution): `Rscript -e 'targets::tar_manifest(fields = "name")' | grep -c -E "rna_mat|methyl_mat|cnv_mat|mut_annot|cohort_n"`
   Expected output: `5`
-- [ ] **Step 4: Run the pipeline locally with the real pull** (the pipeline "test" — requires the annotation + curatedTCGAData packages installed in Task 1.1, ~15–30 min first run):
+- [ ] **Step 4: Run the pipeline locally with the real pull** (the pipeline "test" - requires the annotation + curatedTCGAData packages installed in Task 1.1, ~15–30 min first run):
   `HEAVY_PULL=true Rscript -e 'targets::tar_make(c(cohort_n, rna_mat, methyl_mat, cnv_mat, mut_annot))'`
   Expected: all targets report `dispatched` → `completed`, no `errored`. The `cohort_n` target succeeds (its `stopifnot` passes only when the cohort falls in `[520, 535]`).
 - [ ] **Step 5: Assert the recorded cohort size, shared sample order, and the mutation-annotation shape:**
@@ -2150,16 +2150,16 @@ fn_load_methyl_annotation <- function() {
   sample order aligned across RNA/Methyl/CNV
   mut_annot is a data.frame with sample_id + gene columns
   ```
-  (Any value in 520–535 is acceptable; the measured value on the 20160128 snapshot is 524. If `cohort_n` errors, `common_ids` is off — inspect `tar_read(common_ids)` length before proceeding.)
+  (Any value in 520–535 is acceptable; the measured value on the 20160128 snapshot is 524. If `cohort_n` errors, `common_ids` is off - inspect `tar_read(common_ids)` length before proceeding.)
 - [ ] **Step 6: Run the full R unit suite to confirm no regressions:** `Rscript -e 'testthat::test_dir("tests/testthat")'`
   Expected: `[ FAIL 0 | WARN 0 | SKIP 0 | PASS 17 ]`
 - [ ] **Step 7: Commit:** `git add _targets.R R/functions_preprocess.R && git commit -m "feat: wire module 1 ingest/preprocess targets with cohort-size assertion"`
 
 ---
 
-**Phase 1 exit criteria:** `rna_mat` (log2 normalised expression, NOT vst), `methyl_mat` (M-values, HM27∪HM450 merged on common CpGs, SNP/sex probes dropped), `cnv_mat` (GISTIC thresholded), and `mut_annot` are materialised in the `_targets` store on a single harmonised sample order; `cohort_n` records the real cohort size (measured 524 on snapshot 20160128) and fails the build if it drifts outside `[COHORT_MIN, COHORT_MAX]`. `mut_annot` is the **canonical annotation shape** — a `data.frame` with a character `sample_id` column plus one integer `0/1` column per driver gene (n=417 subset), aggregated from `Hugo_Symbol` on the real `RaggedExperiment` — so Module 2 `fn_annotate_mutation` (merge on `sample_id`), Module 3 `fn_check_mutation_freq`/`fn_check_bap1_survival` (`mut_annot$sample_id`, `mut_annot[[gene]]`), and Module 4 (`match(common, mut_annot$sample_id)`) all consume it without a shape adapter. The four view matrices plus `mut_annot` are the exact inputs Module 2 (`fn_run_mofa` on `rna_mat`/`methyl_mat`/`cnv_mat`, `fn_annotate_mutation` on `mut_annot`) consumes. The Bioconductor packages this phase relies on (`minfi`, `IlluminaHumanMethylation450kanno.ilmn12.hg19`, `RaggedExperiment`, `SummarizedExperiment`) are recorded in `DESCRIPTION` Imports and `renv.lock` (Task 1.1), so `renv::restore()` reproduces the `HEAVY_PULL` run in Docker/CI.
+**Phase 1 exit criteria:** `rna_mat` (log2 normalised expression, NOT vst), `methyl_mat` (M-values, HM27∪HM450 merged on common CpGs, SNP/sex probes dropped), `cnv_mat` (GISTIC thresholded), and `mut_annot` are materialised in the `_targets` store on a single harmonised sample order; `cohort_n` records the real cohort size (measured 524 on snapshot 20160128) and fails the build if it drifts outside `[COHORT_MIN, COHORT_MAX]`. `mut_annot` is the **canonical annotation shape** - a `data.frame` with a character `sample_id` column plus one integer `0/1` column per driver gene (n=417 subset), aggregated from `Hugo_Symbol` on the real `RaggedExperiment` - so Module 2 `fn_annotate_mutation` (merge on `sample_id`), Module 3 `fn_check_mutation_freq`/`fn_check_bap1_survival` (`mut_annot$sample_id`, `mut_annot[[gene]]`), and Module 4 (`match(common, mut_annot$sample_id)`) all consume it without a shape adapter. The four view matrices plus `mut_annot` are the exact inputs Module 2 (`fn_run_mofa` on `rna_mat`/`methyl_mat`/`cnv_mat`, `fn_annotate_mutation` on `mut_annot`) consumes. The Bioconductor packages this phase relies on (`minfi`, `IlluminaHumanMethylation450kanno.ilmn12.hg19`, `RaggedExperiment`, `SummarizedExperiment`) are recorded in `DESCRIPTION` Imports and `renv.lock` (Task 1.1), so `renv::restore()` reproduces the `HEAVY_PULL` run in Docker/CI.
 
-**Phase 1 exit criteria — STATUS: VERIFIED MATERIALISED on real data** (no longer deferred to a future `HEAVY_PULL` run). GitHub Actions run 30708943504, 2026-08-01, inside `bioconductor/bioconductor_docker:RELEASE_3_23`, ran `tar_make` with `HEAVY_PULL=true` against the frozen curatedTCGAData 2.0.1 KIRC snapshot 20160128 and built every Module-1 target:
+**Phase 1 exit criteria - STATUS: VERIFIED MATERIALISED on real data** (no longer deferred to a future `HEAVY_PULL` run). GitHub Actions run 30708943504, 2026-08-01, inside `bioconductor/bioconductor_docker:RELEASE_3_23`, ran `tar_make` with `HEAVY_PULL=true` against the frozen curatedTCGAData 2.0.1 KIRC snapshot 20160128 and built every Module-1 target:
 
 | Target | Measured |
 |---|---|
@@ -2167,19 +2167,19 @@ fn_load_methyl_annotation <- function() {
 | `rna_mat` | 5000 × 524 |
 | `methyl_mat` | 5000 × 524 |
 | `cnv_mat` | 24776 × 524 |
-| `mut_annot` | 417 × 7 — `sample_id`, `VHL`, `PBRM1`, `SETD2`, `BAP1`, `MTOR`, `KDM5C` |
+| `mut_annot` | 417 × 7 - `sample_id`, `VHL`, `PBRM1`, `SETD2`, `BAP1`, `MTOR`, `KDM5C` |
 
-`sample_id` is `character` = TRUE and every gene column is `integer` 0/1 = TRUE, so the canonical `mut_annot` contract now holds on REAL data, not just on synthetic fixtures. The `fn_load_methyl_annotation` attach fix is CONFIRMED working — `methyl_anno` built successfully in this run, having errored in the previous one. (Modules 2–4 remain unrun: MOFA2 integration has not been executed and no survival model has been fitted.)
+`sample_id` is `character` = TRUE and every gene column is `integer` 0/1 = TRUE, so the canonical `mut_annot` contract now holds on REAL data, not just on synthetic fixtures. The `fn_load_methyl_annotation` attach fix is CONFIRMED working - `methyl_anno` built successfully in this run, having errored in the previous one. (Modules 2–4 remain unrun: MOFA2 integration has not been executed and no survival model has been fitted.)
 
 ---
 
 ## Phase 2: Integrate
 
-This phase turns the three aligned omics matrices from Module 1 into an interpretable low-dimensional structure: MOFA2 latent factors are the main integration, SNFtool provides a cheap second opinion, the two clusterings are checked for concordance, per-omics variance-explained is computed per factor, subtypes are assigned from the factors, and mutation status (BAP1/PBRM1/…) enters only as an external annotation label for factor interpretation — never as a MOFA view (spec §6a). All new logic lives in `R/functions_integrate.R`; pure helpers are TDD'd on synthetic/fixture data, the MOFA path is verified with a `skip_if` guard on `mofapy2`, and the pipeline wiring is verified by a local `tar_make()`.
+This phase turns the three aligned omics matrices from Module 1 into an interpretable low-dimensional structure: MOFA2 latent factors are the main integration, SNFtool provides a cheap second opinion, the two clusterings are checked for concordance, per-omics variance-explained is computed per factor, subtypes are assigned from the factors, and mutation status (BAP1/PBRM1/…) enters only as an external annotation label for factor interpretation - never as a MOFA view (spec §6a). All new logic lives in `R/functions_integrate.R`; pure helpers are TDD'd on synthetic/fixture data, the MOFA path is verified with a `skip_if` guard on `mofapy2`, and the pipeline wiring is verified by a local `tar_make()`.
 
 ---
 
-### Task 2.1 — Integration constants + `fn_run_mofa`
+### Task 2.1 - Integration constants + `fn_run_mofa`
 
 **Files:**
 - Modify: `R/constants.R` (append integration constants)
@@ -2188,7 +2188,7 @@ This phase turns the three aligned omics matrices from Module 1 into an interpre
 - Test: `tests/testthat/test-integrate.R` (create)
 
 **Interfaces:**
-- Consumes: `rna_mat`, `methyl_mat`, `cnv_mat` — each a numeric matrix, features × samples, shared harmonised sample columns (Module 1); `DRIVER_GENES` (character vector, `R/constants.R`).
+- Consumes: `rna_mat`, `methyl_mat`, `cnv_mat` - each a numeric matrix, features × samples, shared harmonised sample columns (Module 1); `DRIVER_GENES` (character vector, `R/constants.R`).
 - Produces: `fn_run_mofa(view_list, n_factors = MOFA_N_FACTORS, seed = MOFA_SEED, maxiter = MOFA_MAXITER, outfile = tempfile(fileext = ".hdf5"))` → a trained `MOFA` S4 object. `view_list` is a named `list` of features × samples matrices (names become MOFA view names).
 
 - [ ] **Step 1: Append integration constants to `R/constants.R`.**
@@ -2244,7 +2244,7 @@ test_that("fn_run_mofa returns a trained MOFA object with the requested views", 
 })
 ```
 
-- [ ] **Step 4: Run it — expect FAIL (function undefined).**
+- [ ] **Step 4: Run it - expect FAIL (function undefined).**
 ```bash
 Rscript -e 'testthat::test_file("tests/testthat/test-integrate.R")'
 # Expected: Error: could not find function "fn_run_mofa"  (1 error)
@@ -2289,7 +2289,7 @@ fn_run_mofa <- function(view_list,
 }
 ```
 
-- [ ] **Step 6: Run test — expect PASS (or skip if no `mofapy2`).**
+- [ ] **Step 6: Run test - expect PASS (or skip if no `mofapy2`).**
 ```bash
 Rscript -e 'testthat::test_file("tests/testthat/test-integrate.R")'
 # Expected: [ PASS 1 ]   (or [ SKIP 1 ] "mofapy2 not available" on a bare host)
@@ -2303,7 +2303,7 @@ git commit -m "feat: add MOFA2 training (fn_run_mofa) and integration constants"
 
 ---
 
-### Task 2.2 — `fn_extract_factors` + `fn_variance_explained`
+### Task 2.2 - `fn_extract_factors` + `fn_variance_explained`
 
 **Files:**
 - Modify: `R/functions_integrate.R`
@@ -2340,7 +2340,7 @@ test_that("fn_extract_factors and fn_variance_explained expose factors and per-o
 })
 ```
 
-- [ ] **Step 2: Run — expect FAIL.**
+- [ ] **Step 2: Run - expect FAIL.**
 ```bash
 Rscript -e 'testthat::test_file("tests/testthat/test-integrate.R")'
 # Expected: could not find function "fn_extract_factors"
@@ -2366,7 +2366,7 @@ fn_variance_explained <- function(mofa_model) {
 }
 ```
 
-- [ ] **Step 4: Run — expect PASS.**
+- [ ] **Step 4: Run - expect PASS.**
 ```bash
 Rscript -e 'testthat::test_file("tests/testthat/test-integrate.R")'
 # Expected: [ PASS 3 ]   (or SKIP without mofapy2)
@@ -2380,7 +2380,7 @@ git commit -m "feat: extract MOFA factors and per-omics variance explained"
 
 ---
 
-### Task 2.3 — `fn_assign_subtypes` (cluster the factor matrix)
+### Task 2.3 - `fn_assign_subtypes` (cluster the factor matrix)
 
 **Files:**
 - Modify: `R/functions_integrate.R`
@@ -2388,9 +2388,9 @@ git commit -m "feat: extract MOFA factors and per-omics variance explained"
 
 **Interfaces:**
 - Consumes: `mofa_factors` (samples × factors numeric matrix from `fn_extract_factors`).
-- Produces: `fn_assign_subtypes(factor_matrix, k = K_SUBTYPES, seed = SUBTYPE_SEED)` → named `factor` of length = n samples, levels `S1…Sk`, names = sample IDs. Deterministic (seeded k-means, immutable — returns a new object).
+- Produces: `fn_assign_subtypes(factor_matrix, k = K_SUBTYPES, seed = SUBTYPE_SEED)` → named `factor` of length = n samples, levels `S1…Sk`, names = sample IDs. Deterministic (seeded k-means, immutable - returns a new object).
 
-- [ ] **Step 1: Add the failing test (pure function, synthetic separable data — no Python).**
+- [ ] **Step 1: Add the failing test (pure function, synthetic separable data - no Python).**
 ```r
 test_that("fn_assign_subtypes returns k seeded, reproducible clusters over sample IDs", {
   # Arrange: two clearly separated blobs in 2-factor space
@@ -2444,7 +2444,7 @@ test_that("fn_assign_subtypes seeds without mutating the caller's RNG state", {
 })
 ```
 
-- [ ] **Step 2: Run — expect FAIL.**
+- [ ] **Step 2: Run - expect FAIL.**
 ```bash
 Rscript -e 'testthat::test_file("tests/testthat/test-integrate.R")'
 # Expected: could not find function "fn_assign_subtypes"
@@ -2485,7 +2485,7 @@ fn_assign_subtypes <- function(factor_matrix,
 }
 ```
 
-- [ ] **Step 4: Run — expect PASS.**
+- [ ] **Step 4: Run - expect PASS.**
 ```bash
 Rscript -e 'testthat::test_file("tests/testthat/test-integrate.R")'
 # Expected: [ PASS 4 ]  (2.3 test passes even without mofapy2)
@@ -2499,7 +2499,7 @@ git commit -m "feat: assign MOFA subtypes with seeded k-means over factor space"
 
 ---
 
-### Task 2.4 — `fn_run_snf` (SNFtool cheap sensitivity clustering)
+### Task 2.4 - `fn_run_snf` (SNFtool cheap sensitivity clustering)
 
 **Files:**
 - Modify: `R/functions_integrate.R`
@@ -2584,7 +2584,7 @@ test_that("fn_run_snf rejects views whose sample columns disagree", {
 })
 ```
 
-- [ ] **Step 2: Run — expect FAIL.**
+- [ ] **Step 2: Run - expect FAIL.**
 ```bash
 Rscript -e 'testthat::test_file("tests/testthat/test-integrate.R")'
 # Expected: could not find function "fn_run_snf"
@@ -2631,7 +2631,7 @@ fn_view_samples <- function(view_list) {
 }
 ```
 
-- [ ] **Step 4: Run — expect PASS.**
+- [ ] **Step 4: Run - expect PASS.**
 ```bash
 Rscript -e 'testthat::test_file("tests/testthat/test-integrate.R")'
 # Expected: [ PASS 5 ]
@@ -2645,7 +2645,7 @@ git commit -m "feat: add SNFtool sensitivity clustering (fn_run_snf)"
 
 ---
 
-### Task 2.5 — `fn_cluster_concordance` (MOFA-vs-SNF adjusted Rand index)
+### Task 2.5 - `fn_cluster_concordance` (MOFA-vs-SNF adjusted Rand index)
 
 **Files:**
 - Modify: `R/functions_integrate.R`
@@ -2690,13 +2690,13 @@ test_that("fn_cluster_concordance returns ARI near 0 for independent random labe
 })
 ```
 
-- [ ] **Step 2: Run — expect FAIL.**
+- [ ] **Step 2: Run - expect FAIL.**
 ```bash
 Rscript -e 'testthat::test_file("tests/testthat/test-integrate.R")'
 # Expected: could not find function "fn_cluster_concordance"
 ```
 
-- [ ] **Step 3: Implement (ARI computed in-house — no extra dependency).**
+- [ ] **Step 3: Implement (ARI computed in-house - no extra dependency).**
 ```r
 #' Adjusted Rand index between two named cluster labellings, aligned by name.
 fn_cluster_concordance <- function(labels_a, labels_b) {
@@ -2725,7 +2725,7 @@ fn_adjusted_rand_index <- function(contingency) {
 }
 ```
 
-- [ ] **Step 4: Run — expect PASS.**
+- [ ] **Step 4: Run - expect PASS.**
 ```bash
 Rscript -e 'testthat::test_file("tests/testthat/test-integrate.R")'
 # Expected: [ PASS 7 ]
@@ -2739,14 +2739,14 @@ git commit -m "feat: two-method MOFA-vs-SNF concordance via adjusted Rand index"
 
 ---
 
-### Task 2.6 — `fn_annotate_mutation` (factor ↔ BAP1/PBRM1 external label, spec §6a)
+### Task 2.6 - `fn_annotate_mutation` (factor ↔ BAP1/PBRM1 external label, spec §6a)
 
 **Files:**
 - Modify: `R/functions_integrate.R`
 - Test: `tests/testthat/test-integrate.R`
 
 **Interfaces:**
-- Consumes: `mofa_factors` (samples × factors matrix); `mut_annot` — a `data.frame`, rownames = sample IDs on the n=417 subset, columns = driver genes with 0/1 mutation status (Module 1); `DRIVER_GENES` (`R/constants.R`).
+- Consumes: `mofa_factors` (samples × factors matrix); `mut_annot` - a `data.frame`, rownames = sample IDs on the n=417 subset, columns = driver genes with 0/1 mutation status (Module 1); `DRIVER_GENES` (`R/constants.R`).
 - Produces: `fn_annotate_mutation(factor_matrix, mut_annot, genes = DRIVER_GENES)` → `data.frame` with columns `gene, factor, p_value, median_wt, median_mut, q_value`, ordered by `p_value`. Mutation is annotation only; it is never fed into MOFA. Answers "which factor tracks BAP1/PBRM1 status?"
 
 - [ ] **Step 1: Add the failing test (synthetic: Factor2 tracks BAP1).**
@@ -2830,7 +2830,7 @@ test_that("fn_annotate_mutation reports a diagnostic error on a degenerate overl
 })
 ```
 
-- [ ] **Step 2: Run — expect FAIL.**
+- [ ] **Step 2: Run - expect FAIL.**
 ```bash
 Rscript -e 'testthat::test_file("tests/testthat/test-integrate.R")'
 # Expected: could not find function "fn_annotate_mutation"
@@ -2900,7 +2900,7 @@ fn_test_factor_gene <- function(factor_matrix, status, gene) {
 }
 ```
 
-- [ ] **Step 4: Run — expect PASS.**
+- [ ] **Step 4: Run - expect PASS.**
 ```bash
 Rscript -e 'testthat::test_file("tests/testthat/test-integrate.R")'
 # Expected: [ PASS 8 ]
@@ -2914,18 +2914,18 @@ git commit -m "feat: annotate MOFA factors with BAP1/PBRM1 mutation status (not 
 
 ---
 
-### Task 2.7 — Wire Module 2 targets into `_targets.R`
+### Task 2.7 - Wire Module 2 targets into `_targets.R`
 
 **Files:**
 - Modify: `_targets.R` (add integration targets + MOFA2/SNFtool to `tar_option_set` packages)
 
 **Interfaces:**
 - Consumes: targets `rna_mat`, `methyl_mat`, `cnv_mat`, `mut_annot` (Module 1); all `fn_*` from Task 2.1–2.6 (sourced via `R/functions_integrate.R`).
-- Produces: targets `mofa_model`, `mofa_factors`, `mofa_varexp`, `subtypes_mofa`, `snf_clusters`, `concordance`, `mutation_factor_annot` — consumed by Modules 3, 4, 5.
+- Produces: targets `mofa_model`, `mofa_factors`, `mofa_varexp`, `subtypes_mofa`, `snf_clusters`, `concordance`, `mutation_factor_annot` - consumed by Modules 3, 4, 5.
 
 - [ ] **Step 1: Declare MOFA2 / reticulate / SNFtool PER-TARGET, not globally.**
 Leave `tar_option_set(packages = ...)` light. A global entry makes EVERY target
-— including `scaffold_env_check` and all of Module 1 — unbuildable on a machine
+- including `scaffold_env_check` and all of Module 1 - unbuildable on a machine
 without those packages (`could not find packages MOFA2, reticulate in library
 paths`), which is exactly the rule the `methyl_anno` target already documents.
 ```r
@@ -2999,15 +2999,15 @@ git commit -m "feat: wire MOFA2/SNF integration targets (factors, subtypes, conc
 ```
 
 **Phase 2 exit criteria:** all Module-2 logic lives in `R/functions_integrate.R` and every
-integration target is wired into `_targets.R` — `mofa_model`, `mofa_factors`, `mofa_varexp`,
+integration target is wired into `_targets.R` - `mofa_model`, `mofa_factors`, `mofa_varexp`,
 `subtypes_mofa`, `snf_clusters`, `concordance`, `mutation_factor_annot`. MOFA2 is the MAIN
 integration and SNF a cheap second opinion: nothing downstream consumes `snf_clusters` except
 `fn_cluster_concordance`, which compares the two partitions by adjusted Rand index (this replaces
-the old "consensus clustering" framing). Mutation is an EXTERNAL LABEL only — `mut_annot` enters
+the old "consensus clustering" framing). Mutation is an EXTERNAL LABEL only - `mut_annot` enters
 through `fn_annotate_mutation` and is never a MOFA view. MOFA2/reticulate/SNFtool are declared
 PER-TARGET, never in `tar_option_set(packages = ...)`, so the scaffold and Module-1 targets stay
 runnable on a machine without them (same attach-scope rule as `METHYL_ANNO_PKG`). SNF square-roots
-`SNFtool::dist2()` before `affinityMatrix()` — `dist2` returns SQUARED euclidean distance and
+`SNFtool::dist2()` before `affinityMatrix()` - `dist2` returns SQUARED euclidean distance and
 feeding squares into a Gaussian kernel is a silent statistical error, not a rescaling. Concordance
 aligns the two label vectors BY SAMPLE NAME before comparing, never positionally.
 
@@ -3019,17 +3019,17 @@ with mofapy2 present and ASSERTS the skip count is zero (a surviving skip fails 
 builds Modules 1+2 on the real snapshot and reports variance explained, subtype sizes, the MOFA-vs-SNF
 ARI and the factor↔driver-mutation association.
 
-**Phase 2 exit criteria — STATUS: VERIFIED ON REAL DATA.** GitHub Actions run 30718392588
+**Phase 2 exit criteria - STATUS: VERIFIED ON REAL DATA.** GitHub Actions run 30718392588
 (2026-08-01, `bioconductor/bioconductor_docker:RELEASE_3_23`) lifted the mofapy2 skips (suite ran
 clean, zero surviving skips) and built all 23 targets in 11.1 min against the frozen snapshot:
 
 - `mofa_model` trained in 8m 19s, 206 iterations, converged (ΔELBO 0.0004%), 15 factors on n=524.
 - Missingness measured, not assumed: `rna_mat` and `cnv_mat` are 100% complete; `methyl_mat` is
   91.4% complete (432 of 5000 CpGs carry a non-finite value, 0.123% of cells). SNF therefore drops
-  8.6% of methylation features — small enough that the MOFA-vs-SNF comparison stays fair, which is
+  8.6% of methylation features - small enough that the MOFA-vs-SNF comparison stays fair, which is
   exactly why the figure is reported rather than assumed.
 - Subtypes are IMBALANCED: S1=20, S2=306, S3=76, S4=122. SNF: C1=257, C2=30, C3=215, C4=22.
-- Two-method concordance **ARI = 0.351** — moderate, not high. Report it as such.
+- Two-method concordance **ARI = 0.351** - moderate, not high. Report it as such.
 - Mutation-as-external-label produced one association surviving BH correction:
   **BAP1 ↔ Factor14, p = 4.5e-05, q = 0.004** (median factor score −0.079 wild-type vs +0.575
   mutant). Caveat that must travel with it: Factor14 is a MINOR axis (0.22% RNA / 0.31%
@@ -3050,7 +3050,7 @@ This phase is the credibility anchor and is built early (before the survival mod
 
 ---
 
-### Task 3.1 — Sanity constants (published ranges, gene panels, thresholds)
+### Task 3.1 - Sanity constants (published ranges, gene panels, thresholds)
 
 **Files:**
 - Modify: `R/constants.R`
@@ -3059,7 +3059,7 @@ This phase is the credibility anchor and is built early (before the survival mod
 **Interfaces:**
 - Consumes: nothing (bootstrap constants).
 - Produces: `DRIVER_GENE_PANEL` (an ALIAS of `DRIVER_GENES`, never a second literal); `PUBLISHED_MUT_FREQ_RANGES` (named list of `c(low=, high=)` numeric[2]); `CCB_PROLIFERATION_MARKERS`, `CCA_ANGIOGENESIS_MARKERS` (character); `METHYL_N_STRATA` (integer, 4L); `SANITY_MAX_PLATFORM_ARI`, `SANITY_MIN_SILHOUETTE`, `SANITY_MIN_SILHOUETTE_2D`, `SANITY_MAX_P`, `SANITY_MIN_COMPLETE_FRAC` (numeric); `SANITY_SEED`, `SANITY_MIN_MARKERS_PER_PANEL` (integer); `VITAL_STATUS_DEAD_VALUES` (character); and `MIN_OS_EVENTS` (integer), which sits with `EPV_CAP` in the model-complexity block rather than the Module 3 block.
-- **Collision resolution (load-bearing):** `DRIVER_GENES` is CANONICAL — `fn_extract_mutation_status`, `fn_annotate_mutation`, `_targets.R` and the fixture generator all consume it — so Task 3.1 defines `DRIVER_GENE_PANEL <- DRIVER_GENES` as an alias. Two literals would be the TOP_VARIABLE_GENES/N_TOP_GENES drift hazard again. Likewise `PUBLISHED_MUT_FREQ_RANGES` is the ONLY mutation-frequency anchor; the `MUTATION_FREQ_RANGES` that Task 0.2 once defined is deleted, not aliased.
+- **Collision resolution (load-bearing):** `DRIVER_GENES` is CANONICAL - `fn_extract_mutation_status`, `fn_annotate_mutation`, `_targets.R` and the fixture generator all consume it - so Task 3.1 defines `DRIVER_GENE_PANEL <- DRIVER_GENES` as an alias. Two literals would be the TOP_VARIABLE_GENES/N_TOP_GENES drift hazard again. Likewise `PUBLISHED_MUT_FREQ_RANGES` is the ONLY mutation-frequency anchor; the `MUTATION_FREQ_RANGES` that Task 0.2 once defined is deleted, not aliased.
 
 - [ ] **Step 1: Write the failing test.** Create `tests/testthat/test-sanity.R` with the constants test at the top:
 ```r
@@ -3230,14 +3230,14 @@ git commit -m "feat: add ccRCC sanity-check constants (published ranges, gene pa
 
 ---
 
-### Task 3.2 — `fn_check_mutation_freq` (driver mutation frequencies within published ranges)
+### Task 3.2 - `fn_check_mutation_freq` (driver mutation frequencies within published ranges)
 
 **Files:**
 - Create: `R/functions_sanity.R`
 - Modify: `tests/testthat/helper-fixtures.R`, `tests/testthat/test-sanity.R`
 
 **Interfaces:**
-- Consumes: `DRIVER_GENE_PANEL`, `PUBLISHED_MUT_FREQ_RANGES` (Task 3.1); `mut_annot` — a `data.frame` with column `sample_id` (character) plus one logical column per driver gene (`VHL`, `PBRM1`, `SETD2`, `BAP1`, …), `n=417` (Module 2).
+- Consumes: `DRIVER_GENE_PANEL`, `PUBLISHED_MUT_FREQ_RANGES` (Task 3.1); `mut_annot` - a `data.frame` with column `sample_id` (character) plus one logical column per driver gene (`VHL`, `PBRM1`, `SETD2`, `BAP1`, …), `n=417` (Module 2).
 - Produces: `fn_check_mutation_freq(mut_annot, gene_panel = DRIVER_GENE_PANEL, ranges = PUBLISHED_MUT_FREQ_RANGES)` → `list(label = chr, per_gene = data.frame(gene, observed, low, high, pass), n = integer, pass = logical)`. `gene_panel` is LOAD-BEARING (the scored set is the three-way intersection with `names(ranges)` and the columns present); `n` is the denominator, without which `mean()` over 20 rows and over 417 are indistinguishable and a collapsed cohort passes every anchor. Also produces `fn_capture_rng()`, the RNG-stream guard used by Tasks 3.4/3.5.
 
 - [ ] **Step 1: Create the function stub and wire the test helper.** Create `R/functions_sanity.R`:
@@ -3246,7 +3246,7 @@ git commit -m "feat: add ccRCC sanity-check constants (published ranges, gene pa
 # Module 3: literature positive controls as structured pass/fail objects.
 # Each fn_check_* is pure (returns a new list, never mutates its inputs).
 ```
-Modify `tests/testthat/helper-fixtures.R` — add only the new Module 3 functions source, matching the existing `testthat::test_path()` pattern used by the Phase 0/1 helper. `R/constants.R` is already sourced by the Phase 0 helper block, so it must NOT be re-sourced here (avoids duplicate-definition churn); do not introduce a `here` dependency:
+Modify `tests/testthat/helper-fixtures.R` - add only the new Module 3 functions source, matching the existing `testthat::test_path()` pattern used by the Phase 0/1 helper. `R/constants.R` is already sourced by the Phase 0 helper block, so it must NOT be re-sourced here (avoids duplicate-definition churn); do not introduce a `here` dependency:
 ```r
 # --- Module 3 sources -------------------------------------------------------
 # constants.R is already sourced by the Phase 0 helper block. Add only the new
@@ -3465,14 +3465,14 @@ git commit -m "feat: add fn_check_mutation_freq positive control"
 
 ---
 
-### Task 3.3 — `fn_check_bap1_survival` (BAP1-mutant worse OS)
+### Task 3.3 - `fn_check_bap1_survival` (BAP1-mutant worse OS)
 
 **Files:**
 - Modify: `R/functions_sanity.R`, `tests/testthat/test-sanity.R`
 
 **Interfaces:**
-- Consumes: `clinical` — a `data.frame` with columns `sample_id` (chr), `os_time` (numeric days), `os_event` (0/1), produced by the Module 1 `clinical` target derived in Task 3.6; `mut_annot` with a logical `BAP1` column (Module 2); `survival` package.
-- Produces: `fn_check_bap1_survival(clinical, mut_annot)` → `list(label, hr, ci_low, ci_high, p_value, n, n_events, n_mutant, n_events_mutant, mutant_frac, events_required, underpowered, pass)` where `pass = hr > 1`. The five design-adequacy fields are returned so the anchor can assert the under-power as a TESTED claim rather than a prose footnote: `events_required` is `fn_schoenfeld_events(hr, mutant_frac)` and `underpowered` is `n_events < events_required`. `pass` carries NO significance requirement — see the arithmetic block in `R/constants.R` (`PUBLISHED_BAP1_HR_RANGE` / `SURVIVAL_TARGET_POWER`), the ONE re-specification permitted in this phase. It REFUSES degenerate designs rather than reporting them: `survival::coxph` does not error on zero events or on a constant BAP1 column — MEASURED, it returns `hr = NA, p = NA, pass = NA` silently, and on a single event `hr = 3.7e+09, ci = [0, Inf], p = 0.999, pass = TRUE`. Hence the `MIN_OS_EVENTS` floor, the both-levels check and the finite-HR check.
+- Consumes: `clinical` - a `data.frame` with columns `sample_id` (chr), `os_time` (numeric days), `os_event` (0/1), produced by the Module 1 `clinical` target derived in Task 3.6; `mut_annot` with a logical `BAP1` column (Module 2); `survival` package.
+- Produces: `fn_check_bap1_survival(clinical, mut_annot)` → `list(label, hr, ci_low, ci_high, p_value, n, n_events, n_mutant, n_events_mutant, mutant_frac, events_required, underpowered, pass)` where `pass = hr > 1`. The five design-adequacy fields are returned so the anchor can assert the under-power as a TESTED claim rather than a prose footnote: `events_required` is `fn_schoenfeld_events(hr, mutant_frac)` and `underpowered` is `n_events < events_required`. `pass` carries NO significance requirement - see the arithmetic block in `R/constants.R` (`PUBLISHED_BAP1_HR_RANGE` / `SURVIVAL_TARGET_POWER`), the ONE re-specification permitted in this phase. It REFUSES degenerate designs rather than reporting them: `survival::coxph` does not error on zero events or on a constant BAP1 column - MEASURED, it returns `hr = NA, p = NA, pass = NA` silently, and on a single event `hr = 3.7e+09, ci = [0, Inf], p = 0.999, pass = TRUE`. Hence the `MIN_OS_EVENTS` floor, the both-levels check and the finite-HR check.
 
 - [ ] **Step 1: Write the failing test.** Append to `tests/testthat/test-sanity.R`:
 ```r
@@ -3636,15 +3636,15 @@ git commit -m "feat: add fn_check_bap1_survival positive control"
 
 ---
 
-### Task 3.4 — `fn_check_methyl_strata` (recover m1–m4 methylation strata)
+### Task 3.4 - `fn_check_methyl_strata` (recover m1–m4 methylation strata)
 
 **Files:**
 - Modify: `R/functions_sanity.R`, `tests/testthat/test-sanity.R`, `DESCRIPTION`
 
 **Interfaces:**
-- Consumes: `METHYL_N_STRATA`, `SANITY_MIN_SILHOUETTE`, `SANITY_MAX_P`, `SANITY_MIN_COMPLETE_FRAC`, `SANITY_MAX_PLATFORM_ARI`, `SANITY_SEED` (Task 3.1); `methyl_mat` — CpGs × samples M-value matrix, HM27+HM450 merged, top-variable (Module 1); `methyl_platform` (Task 3.6); packages `cluster` (R-recommended) and `mclust` (already a Module 2 dependency).
-- Produces: `fn_complete_cpgs(methyl_mat, min_frac = SANITY_MIN_COMPLETE_FRAC)`, and `fn_check_methyl_strata(methyl_mat, platform = NULL, k = METHYL_N_STRATA, max_platform_ari = SANITY_MAX_PLATFORM_ARI, seed = SANITY_SEED)` → `list(label, message, n_strata, n_cpg_used, silhouette, kw_p_value, platform_ari, platform_p, within_platform, merged_exceeds_within, cluster, pass)`. It also produces the two helpers the reporting rests on: `fn_within_platform_silhouette(methyl_mat, platform, k, seed)` → `data.frame(platform, n, n_cpg, silhouette)` (NA for an arm too small or too incomplete to cluster — recorded, never imputed), and `fn_methyl_strata_message(...)` → `character(1)`, which states the verdict as a finding so a bare `FALSE` cannot invite a future reader to move a threshold.
-- **Two departures from the first draft, both required for the check to run at all or to be falsifiable.** (1) `fn_complete_cpgs`: `stats::kmeans` errors outright on NA/NaN/Inf and the real `methyl_mat` is only 91.4% complete (432 of 5000 CpGs carry a non-finite value), so without it the anchor cannot run on the data it exists to check; dropping is per-CpG, never per-sample, and imputation is deliberately NOT used because invented values in a positive control are invented evidence. (2) the `platform` term — see the `methyl_platform` note in Task 3.6.
+- Consumes: `METHYL_N_STRATA`, `SANITY_MIN_SILHOUETTE`, `SANITY_MAX_P`, `SANITY_MIN_COMPLETE_FRAC`, `SANITY_MAX_PLATFORM_ARI`, `SANITY_SEED` (Task 3.1); `methyl_mat` - CpGs × samples M-value matrix, HM27+HM450 merged, top-variable (Module 1); `methyl_platform` (Task 3.6); packages `cluster` (R-recommended) and `mclust` (already a Module 2 dependency).
+- Produces: `fn_complete_cpgs(methyl_mat, min_frac = SANITY_MIN_COMPLETE_FRAC)`, and `fn_check_methyl_strata(methyl_mat, platform = NULL, k = METHYL_N_STRATA, max_platform_ari = SANITY_MAX_PLATFORM_ARI, seed = SANITY_SEED)` → `list(label, message, n_strata, n_cpg_used, silhouette, kw_p_value, platform_ari, platform_p, within_platform, merged_exceeds_within, cluster, pass)`. It also produces the two helpers the reporting rests on: `fn_within_platform_silhouette(methyl_mat, platform, k, seed)` → `data.frame(platform, n, n_cpg, silhouette)` (NA for an arm too small or too incomplete to cluster - recorded, never imputed), and `fn_methyl_strata_message(...)` → `character(1)`, which states the verdict as a finding so a bare `FALSE` cannot invite a future reader to move a threshold.
+- **Two departures from the first draft, both required for the check to run at all or to be falsifiable.** (1) `fn_complete_cpgs`: `stats::kmeans` errors outright on NA/NaN/Inf and the real `methyl_mat` is only 91.4% complete (432 of 5000 CpGs carry a non-finite value), so without it the anchor cannot run on the data it exists to check; dropping is per-CpG, never per-sample, and imputation is deliberately NOT used because invented values in a positive control are invented evidence. (2) the `platform` term - see the `methyl_platform` note in Task 3.6.
 
 - [ ] **Step 1: Declare the `cluster` dependency.** Add to the `Imports:` field of `DESCRIPTION`:
 ```
@@ -3738,16 +3738,16 @@ git commit -m "feat: add fn_check_methyl_strata positive control (m1-m4)"
 
 ---
 
-### Task 3.5 — `fn_check_ccab_signature` (ccA/ccB expression separation)
+### Task 3.5 - `fn_check_ccab_signature` (ccA/ccB expression separation)
 
 **Files:**
 - Modify: `R/functions_sanity.R`, `tests/testthat/test-sanity.R`
 
 **Interfaces:**
-- Consumes: `CCB_PROLIFERATION_MARKERS`, `CCA_ANGIOGENESIS_MARKERS`, `SANITY_MIN_SILHOUETTE`, `SANITY_MAX_P`, `SANITY_SEED` (Task 3.1); `rna_mat` — genes × samples log2-normalised expression, gene-symbol rownames (Module 1); package `cluster`.
+- Consumes: `CCB_PROLIFERATION_MARKERS`, `CCA_ANGIOGENESIS_MARKERS`, `SANITY_MIN_SILHOUETTE`, `SANITY_MAX_P`, `SANITY_SEED` (Task 3.1); `rna_mat` - genes × samples log2-normalised expression, gene-symbol rownames (Module 1); package `cluster`.
 - Produces: `fn_check_ccab_signature(rna_mat, ccb_markers = CCB_PROLIFERATION_MARKERS, cca_markers = CCA_ANGIOGENESIS_MARKERS, min_markers = SANITY_MIN_MARKERS_PER_PANEL, seed = SANITY_SEED)` → `list(label, n_ccb_used, n_cca_used, markers_used, silhouette, separation_p_value, anticorr_rho, anticorr_p_value, group, axis_score, pass)`.
-- **Three departures from the first draft, all STRICTENING.** (1) `pass` also requires the published ccA/ccB OPPOSITION (Spearman rho < 0 at `SANITY_MAX_P`), computed from the marker scores alone with no reference to the clustering. The draft's silhouette + Wilcoxon pair are BOTH circular — the groups are k-means on the very pair of scores that then get clustered and compared — and MEASURED they returned `pass = TRUE` on 3 of 5 structureless matrices. (2) the silhouette is computed in the SAME space the clustering used; measured on a matrix whose panels differ ~37x in spread, the draft reported -0.020 where the clustering's own space gives 0.538. (3) the threshold is `SANITY_MIN_SILHOUETTE_2D`, separately calibrated, because pure 2-D noise clears the 0.10 methylation floor every time.
-- The DAG feeds this `rna_full`, NOT `rna_mat` — see Task 3.6.
+- **Three departures from the first draft, all STRICTENING.** (1) `pass` also requires the published ccA/ccB OPPOSITION (Spearman rho < 0 at `SANITY_MAX_P`), computed from the marker scores alone with no reference to the clustering. The draft's silhouette + Wilcoxon pair are BOTH circular - the groups are k-means on the very pair of scores that then get clustered and compared - and MEASURED they returned `pass = TRUE` on 3 of 5 structureless matrices. (2) the silhouette is computed in the SAME space the clustering used; measured on a matrix whose panels differ ~37x in spread, the draft reported -0.020 where the clustering's own space gives 0.538. (3) the threshold is `SANITY_MIN_SILHOUETTE_2D`, separately calibrated, because pure 2-D noise clears the 0.10 methylation floor every time.
+- The DAG feeds this `rna_full`, NOT `rna_mat` - see Task 3.6.
 
 - [ ] **Step 1: Write the failing test.** Append to `tests/testthat/test-sanity.R`:
 ```r
@@ -3843,7 +3843,7 @@ git commit -m "feat: add fn_check_ccab_signature positive control"
 
 ---
 
-### Task 3.6 — Derive the `clinical` target and wire `sanity_results` into the `targets` DAG
+### Task 3.6 - Derive the `clinical` target and wire `sanity_results` into the `targets` DAG
 
 **Files:**
 - Modify: `_targets.R`
@@ -3851,10 +3851,10 @@ git commit -m "feat: add fn_check_ccab_signature positive control"
 
 **Interfaces:**
 - Consumes: targets `mae_qc`, `mut_annot`, `methyl_mat`, `rna_full`, `methyl_platform` (Modules 1–2); `fn_check_mutation_freq` / `fn_check_bap1_survival` / `fn_check_methyl_strata` / `fn_check_ccab_signature` (Tasks 3.2–3.5).
-- Produces: targets `clinical` — a `data.frame(sample_id, os_time, os_event, platform)` derived from `MultiAssayExperiment::colData(mae_qc)` and passed through `fn_attach_platform` (Task 3.8); `rna_full` and `methyl_platform` (both added here, both load-bearing — see Step 2); and target `sanity_results` — a named list of **five** elements, `list(mutation_freq, bap1_survival, methyl_strata, ccab_signature, subtype_platform)`, each element the structured pass/fail list from its `fn_check_*`.
+- Produces: targets `clinical` - a `data.frame(sample_id, os_time, os_event, platform)` derived from `MultiAssayExperiment::colData(mae_qc)` and passed through `fn_attach_platform` (Task 3.8); `rna_full` and `methyl_platform` (both added here, both load-bearing - see Step 2); and target `sanity_results` - a named list of **five** elements, `list(mutation_freq, bap1_survival, methyl_strata, ccab_signature, subtype_platform)`, each element the structured pass/fail list from its `fn_check_*`.
 - **Two departures in the `clinical` body, both required for the BAP1 control to be capable of failing.** (1) the death set is `VITAL_STATUS_DEAD_VALUES` (dead / deceased / "1"), not a literal `c("dead", "deceased")`: on a snapshot storing `vital_status` as 0/1 the narrower set matches NOTHING, giving zero events and a survival anchor that cannot fail. (2) the required `colData` columns are checked up front, because `cd$days_to_death` on a differently-spelled column returns NULL and the `ifelse()` then silently turns a whole arm into NA. IDs are harmonised with `fn_harmonise_ids` because every other keyed object in the DAG is.
 
-> **`clinical` target rationale:** Task 3.3's `fn_check_bap1_survival` requires a `clinical` frame with `sample_id`/`os_time`/`os_event`, but no upstream module produced one (Module 1's Task 1.14 emits only `mae_raw`/`mae_qc`/`rna_mat`/`methyl_mat`/`cnv_mat`/`mut_annot`/`common_ids`/`cohort_n`/`methyl_anno`). This task derives `clinical` once from `colData(mae_qc)` using the same `vital_status`/`days_to_death`/`days_to_last_followup` logic as Module 4's Task 4.7, standardising the survival columns on `os_time`/`os_event`. **`clinical` is the CANONICAL OS derivation for the whole DAG.** Module 4's Task 4.7 MUST build `survival_df` on top of it — merging its own covariates onto `clinical` — and must NOT re-decode `vital_status`/`days_to_death`/`days_to_last_followup` itself, so there is exactly one decode and exactly one sample key (harmonised patient barcodes via `fn_harmonise_ids`). Task 4.7 renames `os_time`/`os_event` to `time`/`status` at that single boundary, because `fn_fit_cox`/`fn_fit_penalised_cox`/`fn_fit_rsf` (Tasks 4.4–4.6) and `km_subtype_df` (Task 5.2) contract on `time`/`status`; the rename happens there and nowhere else.
+> **`clinical` target rationale:** Task 3.3's `fn_check_bap1_survival` requires a `clinical` frame with `sample_id`/`os_time`/`os_event`, but no upstream module produced one (Module 1's Task 1.14 emits only `mae_raw`/`mae_qc`/`rna_mat`/`methyl_mat`/`cnv_mat`/`mut_annot`/`common_ids`/`cohort_n`/`methyl_anno`). This task derives `clinical` once from `colData(mae_qc)` using the same `vital_status`/`days_to_death`/`days_to_last_followup` logic as Module 4's Task 4.7, standardising the survival columns on `os_time`/`os_event`. **`clinical` is the CANONICAL OS derivation for the whole DAG.** Module 4's Task 4.7 MUST build `survival_df` on top of it - merging its own covariates onto `clinical` - and must NOT re-decode `vital_status`/`days_to_death`/`days_to_last_followup` itself, so there is exactly one decode and exactly one sample key (harmonised patient barcodes via `fn_harmonise_ids`). Task 4.7 renames `os_time`/`os_event` to `time`/`status` at that single boundary, because `fn_fit_cox`/`fn_fit_penalised_cox`/`fn_fit_rsf` (Tasks 4.4–4.6) and `km_subtype_df` (Task 5.2) contract on `time`/`status`; the rename happens there and nowhere else.
 
 > Prerequisite: the upstream Module 1–2 targets must already be built (local `HEAVY_PULL` run) or restored from the release-asset `_targets` store. `clinical` and `sanity_results` are computed once on the frozen real data and cached.
 
@@ -3976,7 +3976,7 @@ git commit -m "feat: add fn_check_ccab_signature positive control"
 
   Two Module 1 targets exist **because of** this wiring, and must be added alongside it. Neither is cosmetic: each removes a way for a Module 3 anchor to report green without evidence.
 
-  `rna_full` — the ccA/ccB panels are a PUBLISHED anchor and must not pass through a data-driven feature filter. Feeding the check `rna_mat` (top-5000 of ~20500) lets low-variance markers (EPAS1, KDR, FLT1) be dropped silently, degrading a 6-vs-6 comparison to a 2-vs-2 one:
+  `rna_full` - the ccA/ccB panels are a PUBLISHED anchor and must not pass through a data-driven feature filter. Feeding the check `rna_mat` (top-5000 of ~20500) lets low-variance markers (EPAS1, KDR, FLT1) be dropped silently, degrading a 6-vs-6 comparison to a 2-vs-2 one:
 
 ```r
   # rna_full is the log2-normalised, cohort-aligned expression matrix BEFORE the
@@ -3992,7 +3992,7 @@ git commit -m "feat: add fn_check_ccab_signature positive control"
   tar_target(rna_mat, fn_top_variable(rna_full, N_TOP_GENES)),
 ```
 
-  `methyl_platform` — `methyl_merged` is `cbind(HM27, HM450)` with NO batch correction, and platform is the strongest single axis in merged 27k/450k M-values. MEASURED on constructed data with iid noise, NO biological strata and only a per-platform mean offset, `fn_check_methyl_strata` returned `pass = TRUE` from 1.5 SD upward, i.e. an m1–m4 green light produced entirely by the assay:
+  `methyl_platform` - `methyl_merged` is `cbind(HM27, HM450)` with NO batch correction, and platform is the strongest single axis in merged 27k/450k M-values. MEASURED on constructed data with iid noise, NO biological strata and only a per-platform mean offset, `fn_check_methyl_strata` returned `pass = TRUE` from 1.5 SD upward, i.e. an m1–m4 green light produced entirely by the assay:
 
 ```r
   # Per-sample assay platform, in the column order of methyl_mat. Module 3's
@@ -4065,20 +4065,20 @@ git commit -m "feat: derive clinical target and wire sanity_results into the tar
 
 ---
 
-### Task 3.7 — Credibility-anchor assertions on the frozen `sanity_results`
+### Task 3.7 - Credibility-anchor assertions on the frozen `sanity_results`
 
 **Files:**
 - Modify: `tests/testthat/test-sanity.R`
 
 **Interfaces:**
 - Consumes: frozen target `sanity_results` (Task 3.6) via `targets::tar_read`; `PUBLISHED_MUT_FREQ_RANGES` (Task 3.1).
-- Produces: no new functions — the literature positive controls plus the platform guards, surfaced as real `testthat` assertions on the real pipeline output. This is the credibility anchor referenced in spec §7.
+- Produces: no new functions - the literature positive controls plus the platform guards, surfaced as real `testthat` assertions on the real pipeline output. This is the credibility anchor referenced in spec §7.
 
-> **COUNTS IN THIS TASK ARE POINT-IN-TIME.** Anchor counts move as anchors are added, so every figure below is tagged with when it was measured. The live figures (measured locally 2026-08-05) are **19 ANCHOR blocks — 14 in `tests/testthat/test-sanity.R`, 5 in `tests/testthat/test-clinical.R`** — and a local `test_dir` gives `FAIL 0 | SKIP 21 | PASS 434`, the 21 skips being 2 mofapy2 guards plus the 19 anchors. What is INVARIANT, and what the workflow actually gates on, is that ZERO anchors skip after `tar_make`.
+> **COUNTS IN THIS TASK ARE POINT-IN-TIME.** Anchor counts move as anchors are added, so every figure below is tagged with when it was measured. The live figures (measured locally 2026-08-05) are **19 ANCHOR blocks - 14 in `tests/testthat/test-sanity.R`, 5 in `tests/testthat/test-clinical.R`** - and a local `test_dir` gives `FAIL 0 | SKIP 21 | PASS 434`, the 21 skips being 2 mofapy2 guards plus the 19 anchors. What is INVARIANT, and what the workflow actually gates on, is that ZERO anchors skip after `tar_make`.
 
 - [ ] **Step 1: Write the failing anchor assertions.** Append to `tests/testthat/test-sanity.R`.
 
-> **AS COMMITTED — the store resolution is NOT the plan's original one-liner.** `tryCatch(targets::tar_read(sanity_results), error = function(e) NULL)` has three defects, each of which makes the anchor skip GREEN exactly where it is supposed to run: (1) testthat's working directory is `tests/testthat/`, so a bare `tar_read()` never finds the store even in the container where it has been restored; (2) a blanket `tryCatch` converts an ERRORED target into a skip; (3) a store that has pipeline metadata but no `sanity_results` row — which is what ANY upstream failure leaves behind, since `sanity_results` is the LAST target in the DAG — also skipped. VERIFIED against three real stores: no metadata → skip (correct); errored target → stop (correct); populated store missing the row → every anchor in the file skipped with FAIL 0 (9 of them at the time; 14 today) (wrong). Skipping is reserved for the one honest case: no pipeline metadata at all.
+> **AS COMMITTED - the store resolution is NOT the plan's original one-liner.** `tryCatch(targets::tar_read(sanity_results), error = function(e) NULL)` has three defects, each of which makes the anchor skip GREEN exactly where it is supposed to run: (1) testthat's working directory is `tests/testthat/`, so a bare `tar_read()` never finds the store even in the container where it has been restored; (2) a blanket `tryCatch` converts an ERRORED target into a skip; (3) a store that has pipeline metadata but no `sanity_results` row - which is what ANY upstream failure leaves behind, since `sanity_results` is the LAST target in the DAG - also skipped. VERIFIED against three real stores: no metadata → skip (correct); errored target → stop (correct); populated store missing the row → every anchor in the file skipped with FAIL 0 (9 of them at the time; 14 today) (wrong). Skipping is reserved for the one honest case: no pipeline metadata at all.
 
 ```r
 # --- Credibility anchor: real pipeline results vs published ccRCC literature -
@@ -4149,7 +4149,7 @@ TAR_PROJECT=none Rscript -e 'source("tests/testthat/helper-fixtures.R"); testtha
 Expected: the unit tests pass and EVERY anchor in the file skips, because the target is absent.
 At the time this step was first written that was `[ FAIL 0 | WARN 0 | SKIP 4 | PASS 6 ]`; measured
 over the whole suite on 2026-08-05 it is `[ FAIL 0 | WARN 0 | SKIP 21 | PASS 434 ]` (21 = 2 mofapy2
-+ 19 anchors). The number is not the point — a FAIL or a silently-passing anchor here is.
++ 19 anchors). The number is not the point - a FAIL or a silently-passing anchor here is.
 ```
 [ FAIL 0 | WARN 0 | SKIP <every anchor in the file> | PASS <the unit tests> ]
 ```
@@ -4180,9 +4180,9 @@ git commit -m "test: assert frozen sanity_results against published ccRCC litera
 
 ---
 
-### Task 3.8 — The platform module: `R/functions_clinical.R` and the platform-aware Module 3 helpers
+### Task 3.8 - The platform module: `R/functions_clinical.R` and the platform-aware Module 3 helpers
 
-> **ADDED AFTER THE FACT, in the same spirit as commit `bdde8fe`.** Everything below was implemented on the `platform-correction` branch in response to the measured HM27/HM450 confound (run 30911448546) and existed in `R/` while appearing in NO task here — `grep`ping `docs/` for `fn_attach_platform`, `functions_clinical`, `fn_check_subtype_platform`, `fn_within_platform_silhouette`, `fn_schoenfeld_events` or `fn_methyl_strata_message` returned zero hits. Replaying Phase 3 from a plan missing this task reverts the platform covariate, the subtype guard and the within-platform evidence, which is exactly the silent-revert this plan's preamble warns about.
+> **ADDED AFTER THE FACT, in the same spirit as commit `bdde8fe`.** Everything below was implemented on the `platform-correction` branch in response to the measured HM27/HM450 confound (run 30911448546) and existed in `R/` while appearing in NO task here - `grep`ping `docs/` for `fn_attach_platform`, `functions_clinical`, `fn_check_subtype_platform`, `fn_within_platform_silhouette`, `fn_schoenfeld_events` or `fn_methyl_strata_message` returned zero hits. Replaying Phase 3 from a plan missing this task reverts the platform covariate, the subtype guard and the within-platform evidence, which is exactly the silent-revert this plan's preamble warns about.
 
 **Files:**
 - Create: `R/functions_clinical.R`, `tests/testthat/test-clinical.R`
@@ -4190,11 +4190,11 @@ git commit -m "test: assert frozen sanity_results against published ccRCC litera
 
 **Interfaces:**
 - Consumes: `METHYL_PLATFORMS`, `SANITY_MAX_P`, `SANITY_SEED`, `METHYL_N_STRATA`, `SURVIVAL_TARGET_POWER` (Task 3.1 + Task 4.1); targets `methyl_platform`, `subtypes_mofa`, `mofa_factors`, `meth27_raw`, `meth450_raw`, `common_ids`.
-- Produces, in `R/functions_clinical.R` (a NEW module — platform-covariate plumbing, kept out of `functions_sanity.R` because none of it is a literature positive control):
+- Produces, in `R/functions_clinical.R` (a NEW module - platform-covariate plumbing, kept out of `functions_sanity.R` because none of it is a literature positive control):
   - `fn_attach_platform(clinical, platform)` → the `clinical` frame plus a trailing `platform` factor over `METHYL_PLATFORMS`, NA outside `names(platform)`. Pure; preserves the existing columns' names, order and values, because Module 4's `survival_df` contract and `fn_check_bap1_survival` both select `sample_id`/`os_time`/`os_event` explicitly. REFUSES: a non-data.frame, a frame missing the survival trio, a frame that already carries `platform`, duplicate `sample_id`, a non-factor or wrongly-levelled platform, an NA platform, unnamed or duplicated platform names, and any platform case absent from `clinical` (which would silently drop a case the model was supposed to adjust).
-  - `fn_factor_platform_association(factors, platform)` → `data.frame(factor, n, auc, p_value, q_value, degenerate)`, one row per MOFA factor: two-sample Wilcoxon across the assays with the rank-biserial AUC as effect size (reported as `max(auc, 1 - auc)`, so it does not depend on which platform is the first level) and BH across factors. `degenerate` flags `p_value == 0`, which is impossible for the normal approximation at these group sizes (floor 1.98e-84 at n = 214/310) and therefore signals a collapsed variance — run 30911448546 recorded exactly that for Factor6.
+  - `fn_factor_platform_association(factors, platform)` → `data.frame(factor, n, auc, p_value, q_value, degenerate)`, one row per MOFA factor: two-sample Wilcoxon across the assays with the rank-biserial AUC as effect size (reported as `max(auc, 1 - auc)`, so it does not depend on which platform is the first level) and BH across factors. `degenerate` flags `p_value == 0`, which is impossible for the normal approximation at these group sizes (floor 1.98e-84 at n = 214/310) and therefore signals a collapsed variance - run 30911448546 recorded exactly that for Factor6.
 - Produces, in `R/functions_sanity.R`:
-  - `fn_check_subtype_platform(subtypes, platform, max_ari = SUBTYPE_MAX_PLATFORM_ARI)` → `list(label, ari, p_value, n, n_subtypes, cross_tab, pass)`. Refuses unnamed vectors, a partial sample overlap and a one-level labelling — each of which yields a near-zero ARI for free.
+  - `fn_check_subtype_platform(subtypes, platform, max_ari = SUBTYPE_MAX_PLATFORM_ARI)` → `list(label, ari, p_value, n, n_subtypes, cross_tab, pass)`. Refuses unnamed vectors, a partial sample overlap and a one-level labelling - each of which yields a near-zero ARI for free.
   - `fn_within_platform_silhouette(methyl_mat, platform, k, seed)` → `data.frame(platform, n, n_cpg, silhouette)`, each arm filtered on its OWN probes; NA for an arm too small or too incomplete to cluster.
   - `fn_methyl_strata_message(...)` → `character(1)`, the m1–m4 verdict stated as a finding.
   - `fn_schoenfeld_events(hr, p_exposed, alpha, power)` → required EVENT count. DESIGN arithmetic, implemented as a function precisely so the under-power claim is EXECUTED and TESTED rather than asserted in prose that can rot. It is NOT post-hoc power: nothing interprets a non-significant p-value as evidence of no effect.
@@ -4203,11 +4203,11 @@ git commit -m "test: assert frozen sanity_results against published ccRCC litera
 
 **Direction of every term added here: it can only turn a green verdict RED.** `SUBTYPE_MAX_PLATFORM_ARI` and the `merged_exceeds_within` conjunct are refusal terms; `BAP1_MAX_CI_RATIO` is a precision bound invariant to where the interval sits relative to 1; `factor_platform`'s anchor asserts a property of predictors already chosen. No published range, silhouette floor or platform-ARI ceiling was moved. The m1–m4 anchor stays RED.
 
-- [ ] **Step 1: Write the failing tests.** `tests/testthat/test-clinical.R` — round-trip, ID-join-not-position, the deliberate NA-outside-cohort asymmetry, every refusal path, and non-mutation of both arguments for `fn_attach_platform`; loaded-vs-clean discrimination, level-order invariance and every refusal path for `fn_factor_platform_association`. In `tests/testthat/test-sanity.R` — `fn_check_subtype_platform` on an independent assignment AND on one where the subtypes ARE the assay (the test that makes the guard worth having), and the veto-only message case.
+- [ ] **Step 1: Write the failing tests.** `tests/testthat/test-clinical.R` - round-trip, ID-join-not-position, the deliberate NA-outside-cohort asymmetry, every refusal path, and non-mutation of both arguments for `fn_attach_platform`; loaded-vs-clean discrimination, level-order invariance and every refusal path for `fn_factor_platform_association`. In `tests/testthat/test-sanity.R` - `fn_check_subtype_platform` on an independent assignment AND on one where the subtypes ARE the assay (the test that makes the guard worth having), and the veto-only message case.
 - [ ] **Step 2: Run to verify they FAIL** (`could not find function "fn_attach_platform"`).
 - [ ] **Step 3: Implement** as specified above. The committed bodies in `R/functions_clinical.R` and `R/functions_sanity.R` are the reference; their roxygen carries the measurements that motivated each guard.
-- [ ] **Step 4: Wire the DAG** — `fn_attach_platform` around the `clinical` body, `platform = methyl_platform` into `fn_check_methyl_strata`, `subtype_platform` into `sanity_results`, plus the `methyl_platform_overlap` and `factor_platform` targets.
-- [ ] **Step 5: Add the ANCHORs** — the clinical anchors (cohort coverage, the measured 214/310 split, NA only outside the cohort), the platform-overlap anchor, the wired-factors-are-clean anchor, and the subtype-independence anchor. LEVEL 3 of `verify-module2.yml` must run BOTH `test-sanity.R` and `test-clinical.R`, or the clinical anchors execute nowhere: LEVEL 1 tolerates anchor skips by design.
+- [ ] **Step 4: Wire the DAG** - `fn_attach_platform` around the `clinical` body, `platform = methyl_platform` into `fn_check_methyl_strata`, `subtype_platform` into `sanity_results`, plus the `methyl_platform_overlap` and `factor_platform` targets.
+- [ ] **Step 5: Add the ANCHORs** - the clinical anchors (cohort coverage, the measured 214/310 split, NA only outside the cohort), the platform-overlap anchor, the wired-factors-are-clean anchor, and the subtype-independence anchor. LEVEL 3 of `verify-module2.yml` must run BOTH `test-sanity.R` and `test-clinical.R`, or the clinical anchors execute nowhere: LEVEL 1 tolerates anchor skips by design.
 - [ ] **Step 6: Commit.**
 ```bash
 git add R/functions_clinical.R R/functions_sanity.R R/constants.R _targets.R tests/testthat/
@@ -4216,62 +4216,62 @@ git commit -m "feat: carry the HM27/HM450 platform covariate through the DAG"
 
 ---
 
-**Phase 3 exit criteria:** all four literature `fn_check_*` (plus the `fn_check_subtype_platform` guard added in Task 3.8) live in `R/functions_sanity.R` and are pure — they return new lists, mutate no input, and restore the caller's RNG stream (`fn_capture_rng`). `sanity_results` is materialised in the `_targets` store with all four `pass` flags `TRUE`, computed on the frozen real data via `clinical`, `mut_annot`, `methyl_mat` + `methyl_platform`, and `rna_full`. **That last clause is now known to be UNMET for one check, and it is recorded as unmet rather than relaxed:** on the real snapshot three `pass` flags are `TRUE` and `methyl_strata` is `FALSE` (see the STATUS block below). No published range was widened, no `SANITY_MIN_SILHOUETTE` lowered, and above all `SANITY_MAX_PLATFORM_ARI` was NOT raised; the m1–m4 `ANCHOR:` tests still fail and still fail the CI job. Each check has a NEGATIVE CONTROL proving it can fail, and each control is a committed test rather than a claim:
+**Phase 3 exit criteria:** all four literature `fn_check_*` (plus the `fn_check_subtype_platform` guard added in Task 3.8) live in `R/functions_sanity.R` and are pure - they return new lists, mutate no input, and restore the caller's RNG stream (`fn_capture_rng`). `sanity_results` is materialised in the `_targets` store with all four `pass` flags `TRUE`, computed on the frozen real data via `clinical`, `mut_annot`, `methyl_mat` + `methyl_platform`, and `rna_full`. **That last clause is now known to be UNMET for one check, and it is recorded as unmet rather than relaxed:** on the real snapshot three `pass` flags are `TRUE` and `methyl_strata` is `FALSE` (see the STATUS block below). No published range was widened, no `SANITY_MIN_SILHOUETTE` lowered, and above all `SANITY_MAX_PLATFORM_ARI` was NOT raised; the m1–m4 `ANCHOR:` tests still fail and still fail the CI job. Each check has a NEGATIVE CONTROL proving it can fail, and each control is a committed test rather than a claim:
 
 | check | negative control | committed evidence |
 |---|---|---|
 | `fn_check_mutation_freq` | a driver outside its published range (both directions), a non-coercible column, an annotation carrying none of the ranged genes | exactly one gene flagged; `stop()` on the other two |
-| `fn_check_bap1_survival` | protective BAP1 (HR < 1); zero events; BAP1 constant; too few events | `pass = FALSE` for the first, `stop()` for the rest — `coxph` returns `pass = NA` silently on all three, and `pass = TRUE` off a single event |
+| `fn_check_bap1_survival` | protective BAP1 (HR < 1); zero events; BAP1 constant; too few events | `pass = FALSE` for the first, `stop()` for the rest - `coxph` returns `pass = NA` silently on all three, and `pass = TRUE` off a single event |
 | `fn_check_methyl_strata` | a structureless noise matrix; a matrix carrying ONLY an HM27/HM450 offset and no biology | silhouette collapses to 0.005 in the first; `platform_ari` 0.504 vetoes the second, which otherwise reported `pass = TRUE` from 1.5 SD upward |
 | `fn_check_ccab_signature` | five structureless matrices; markers that all move together; a gutted panel | `pass = FALSE`; `stop()` on the gutted panel; 0/200 structureless matrices pass |
 
-Every `ANCHOR:` test must **EXECUTE, not skip**, in the container run — 19 of them as of 2026-08-05 (14 in `test-sanity.R`, 5 in `test-clinical.R`), and the requirement is the zero, not the count. They skip locally by design (no real-data `_targets` store exists on the dev machine) but the LEVEL 3 workflow step fails the job if any of them skips after `tar_make` — it runs `test_dir(filter = "sanity|clinical")`, BOTH files, because LEVEL 1 tolerates anchor skips by design and a single-file re-run left the clinical anchors executing nowhere — and `read_sanity_results()` / `read_pipeline_target()` raise rather than skipping whenever a populated store lacks the target. Every anchor floor is bound to a MEASURED quantity, never to a convenient constant.
+Every `ANCHOR:` test must **EXECUTE, not skip**, in the container run - 19 of them as of 2026-08-05 (14 in `test-sanity.R`, 5 in `test-clinical.R`), and the requirement is the zero, not the count. They skip locally by design (no real-data `_targets` store exists on the dev machine) but the LEVEL 3 workflow step fails the job if any of them skips after `tar_make` - it runs `test_dir(filter = "sanity|clinical")`, BOTH files, because LEVEL 1 tolerates anchor skips by design and a single-file re-run left the clinical anchors executing nowhere - and `read_sanity_results()` / `read_pipeline_target()` raise rather than skipping whenever a populated store lacks the target. Every anchor floor is bound to a MEASURED quantity, never to a convenient constant.
 
-**Phase 3 exit criteria — STATUS: VERIFIED ON REAL DATA.** GitHub Actions run 30840373033
+**Phase 3 exit criteria - STATUS: VERIFIED ON REAL DATA.** GitHub Actions run 30840373033
 (`bioconductor/bioconductor_docker:RELEASE_3_23`) built `sanity_results` on the frozen
-curatedTCGAData 2.0.1 KIRC snapshot 20160128 and ran the anchors at LEVEL 3 — counts AS OF THAT
+curatedTCGAData 2.0.1 KIRC snapshot 20160128 and ran the anchors at LEVEL 3 - counts AS OF THAT
 RUN, not a live figure (the suite now carries 19 anchors across two files): **11 anchors, 57
-assertions passed, 4 failed, 0 skipped** — the zero-skip requirement above held, so every anchor
+assertions passed, 4 failed, 0 skipped** - the zero-skip requirement above held, so every anchor
 genuinely executed. Raw output is committed at `docs/results/phase3-anchors-run-30840373033.txt`;
 the follow-up platform-confound diagnostic is at
 `docs/results/platform-diagnosis-run-30911448546.txt` (run 30911448546). The four verdicts:
 
 | check | verdict | measured on real data |
 |---|---|---|
-| `mutation_freq` | **PASS** | VHL 44.8%, PBRM1 30.5%, SETD2 10.1%, BAP1 8.6% — all four inside their published ranges, on the n=417 mutation subset |
+| `mutation_freq` | **PASS** | VHL 44.8%, PBRM1 30.5%, SETD2 10.1%, BAP1 8.6% - all four inside their published ranges, on the n=417 mutation subset |
 | `ccab_signature` | **PASS** | ccA/ccB anti-correlation rho = **−0.354**, p = 6.5e-17, silhouette 0.582, separation p = 3.6e-37, full 6+6 marker panels used (`n_ccb_used` 6, `n_cca_used` 6) |
 | `bap1_survival` | **DIRECTIONALLY RIGHT, UNDERPOWERED** | HR = **1.584**, 95% CI 0.967–2.595, p = 0.0677, n = 417. `pass = TRUE` on the HR > 1 direction the literature predicts; the CI-excludes-1 assertion fails |
-| `methyl_strata` | **RED** | silhouette 0.1197, Kruskal p = 1.3e-82, but `platform_ari` = **0.583** against the 0.25 veto (`platform_p` 3.0e-113) — the four "strata" track the HM27/HM450 assay split |
+| `methyl_strata` | **RED** | silhouette 0.1197, Kruskal p = 1.3e-82, but `platform_ari` = **0.583** against the 0.25 veto (`platform_p` 3.0e-113) - the four "strata" track the HM27/HM450 assay split |
 
 **A red anchor here is the phase working, not the phase failing.** The suite exists to be capable of
 falsifying this pipeline's own output, and it just did: it caught a batch effect that the merged
 silhouette alone would have sold as biology. The two reds mean different things and must never be
 collapsed into one sentence:
 
-- **`bap1_survival` — the requirement was mis-specified, and here is the arithmetic that proves
+- **`bap1_survival` - the requirement was mis-specified, and here is the arithmetic that proves
   it.** The anchor demanded `ci_low > 1`, i.e. two-sided significance at 0.05. Schoenfeld's
   formula for the observed effect (HR 1.584, ln HR 0.460) at the observed 8.63% mutant fraction
   (36 of 417, p1·p2 = 0.0789) needs `(1.960 + 0.842)² / (0.0789 × 0.460²)` = **~470 events** for
   80% power. This cohort has **~138 events in the mutation subset, ~12 of them in the mutant
-  arm** — power ≈ **0.33**, and the smallest hazard ratio it could detect at 80% power is
+  arm** - power ≈ **0.33**, and the smallest hazard ratio it could detect at 80% power is
   **HR ≈ 2.34**. ⚠️ **DERIVED, NOT RECORDED:** neither the 138 nor the 12 appears in any
   committed transcript (run 30840373033 printed only `hr`/`ci_low`/`ci_high`/`p_value`/`n`), and
-  the recorded CI implies ≈ 18 mutant-arm events rather than 12 — SE(ln HR) = 0.2518 from that
+  the recorded CI implies ≈ 18 mutant-arm events rather than 12 - SE(ln HR) = 0.2518 from that
   interval, and √(1/d₁ + 1/d₀) = 0.2518 with d₁+d₀ = 138 gives d₁ ≈ 18. LEVEL 3 of
   `verify-module2.yml` now prints these fields; re-run, commit the transcript and re-cite that run
   before either number is treated as measured. TCGA-KIRC structurally cannot deliver the significance the anchor demanded; the
   demand, not the data, was wrong. This is the ONLY re-specification permitted in this phase, and
   it is permitted because the arithmetic above is checkable, not because the check was
   inconvenient. The direction requirement (HR > 1) stays exactly as it is.
-- **`methyl_strata` — the m1–m4 anchor STAYS RED and is a real negative result.** `platform_ari`
+- **`methyl_strata` - the m1–m4 anchor STAYS RED and is a real negative result.** `platform_ari`
   0.583 is a genuine finding about this merged HM27∪HM450 matrix, not a tuning problem. Run
   30911448546 confirmed it from the other side: the within-platform 4-means silhouettes are
   **HM27 0.0858** (n=214, 4658 CpGs) and **HM450 0.0489** (n=310, 4905 CpGs), i.e. BOTH below the
-  merged 0.1197 — the merge is what manufactures the apparent structure. Per the reference note in
+  merged 0.1197 - the merge is what manufactures the apparent structure. Per the reference note in
   the diagnostic transcript, a within-platform silhouette at or above the merged value would have
   meant "the structure is real, fix the merge"; the collapse means the m1–m4 strata claim does not
   hold on this snapshot. `SANITY_MAX_PLATFORM_ARI` stays at 0.25 and the anchor stays failing. Its
-  job from here is to fail INFORMATIVELY — to keep pointing at the confound in every future run.
+  job from here is to fail INFORMATIVELY - to keep pointing at the confound in every future run.
 
 **What this does NOT contaminate.** The same diagnostic measured the MOFA subtypes against
 platform: adjusted Rand index **0.0058** (S1 11/9, S2 120/186, S3 33/43, S4 50/72 across
@@ -4280,7 +4280,7 @@ several individual factors do, so subtype-based downstream analyses are not plat
 The mutation-frequency and ccA/ccB anchors touch no methylation matrix at all.
 
 **Consequence carried into Phase 4** (decided, not re-litigated): keep the full 524-case cohort, do
-NOT restrict to one platform, and do NOT apply ComBat or any other batch correction — only 3 cases
+NOT restrict to one platform, and do NOT apply ComBat or any other batch correction - only 3 cases
 overlap the two platforms and the probe sets differ, so a correction could be neither validated nor
 trusted not to erase real signal. Instead, adjust for platform as a covariate and prefer
 platform-clean factors as predictors (Phase 4 intro and Task 4.7 below).
@@ -4291,13 +4291,13 @@ platform-clean factors as predictors (Phase 4 intro and Task 4.7 below).
 
 This phase fits the low-dimensional survival models (Cox / penalised Cox / RSF) on MOFA factors + subtypes + a handful of clinical variables under a hard EPV cap, scores them with a reused from-scratch C-index and calibration, and trains the non-circular Python BAP1-from-expression classifier. Every predictive claim is anchored to a held-out split so optimism is reported rather than hidden.
 
-The survival models run on the **main 524-case cohort** (not the mutation-intersected subset). The OS event count on that cohort is now **MEASURED — 173 events among 522 usable cases (33.1%), median follow-up 1188 d** (GitHub Actions run 30708943504, 2026-08-01, from `colData` on the frozen 20160128 snapshot; event = `vital_status` ∈ {dead, deceased, 1}, time = `days_to_death` if event else `days_to_last_followup`). At `EPV_CAP = 10` that licenses **17 predictors**; restricted to the 5-year horizon (1825 d) the cohort has **148 events**, licensing **14**. The budget is still not hard-coded: `fn_max_predictors` derives it at fit time as `floor(observed_events / EPV_CAP)` and `fn_fit_cox` throws if the requested predictor set exceeds it — the measurement licenses the cap, it does not oblige the design to spend it. **AS COMMITTED, the cap is evaluated on the TRAINING partition rather than the whole cohort, and it counts design DF rather than model terms:** the guard now runs *after* `fn_split_train_test`, so the ~173 cohort events license the design while the enforced budget derives from the ~121 events the model is actually estimated on, and a k-level factor is charged the k-1 coefficients it spends (the same coding the penalised arm uses). Both corrections tighten the guard. The wired predictor set stays at **5 variables** — 5 df — comfortably under the training-partition budget as well as under 17 and 14, and genome-wide feature selection is never permitted. The BAP1 classifier uses the n=417 mutation subset (413 cases inside the main cohort). NOTE: the Phase-4 code is WRITTEN and unit-tested on fixtures, but **no survival model has been FITTED on the real data** — only the event census is done, so no C-index, calibration, hazard ratio or AUROC is claimed anywhere.
+The survival models run on the **main 524-case cohort** (not the mutation-intersected subset). The OS event count on that cohort is now **MEASURED - 173 events among 522 usable cases (33.1%), median follow-up 1188 d** (GitHub Actions run 30708943504, 2026-08-01, from `colData` on the frozen 20160128 snapshot; event = `vital_status` ∈ {dead, deceased, 1}, time = `days_to_death` if event else `days_to_last_followup`). At `EPV_CAP = 10` that licenses **17 predictors**; restricted to the 5-year horizon (1825 d) the cohort has **148 events**, licensing **14**. The budget is still not hard-coded: `fn_max_predictors` derives it at fit time as `floor(observed_events / EPV_CAP)` and `fn_fit_cox` throws if the requested predictor set exceeds it - the measurement licenses the cap, it does not oblige the design to spend it. **AS COMMITTED, the cap is evaluated on the TRAINING partition rather than the whole cohort, and it counts design DF rather than model terms:** the guard now runs *after* `fn_split_train_test`, so the ~173 cohort events license the design while the enforced budget derives from the ~121 events the model is actually estimated on, and a k-level factor is charged the k-1 coefficients it spends (the same coding the penalised arm uses). Both corrections tighten the guard. The wired predictor set stays at **5 variables** - 5 df - comfortably under the training-partition budget as well as under 17 and 14, and genome-wide feature selection is never permitted. The BAP1 classifier uses the n=417 mutation subset (413 cases inside the main cohort). NOTE: the Phase-4 code is WRITTEN and unit-tested on fixtures, but **no survival model has been FITTED on the real data** - only the event census is done, so no C-index, calibration, hazard ratio or AUROC is claimed anywhere.
 
-**Platform confound — what Phase 4 must do about it (measured, run 30911448546).** The cohort is
+**Platform confound - what Phase 4 must do about it (measured, run 30911448546).** The cohort is
 **HM27 214 / HM450 310** and several MOFA factors are substantially assay effects: rank-biserial
 AUC against platform (0.5 = no platform information) is **Factor2 0.888** (q 2.9e-50 corrected),
 **Factor5 0.818** (q 2.0e-34 corrected), **Factor6 0.735** (its recorded p = q = 0 is a defect:
-impossible at n = 214/310, where the normal approximation floors at 1.98e-84 — and it is what
+impossible at n = 214/310, where the normal approximation floors at 1.98e-84 - and it is what
 depressed the two q values above, printed as 1.4e-50 / 1.3e-34; see the annotation on
 `docs/results/platform-diagnosis-run-30911448546.txt`), **Factor3 0.658** (q 2.7e-09), with Factor9/8/11/14/10/12 all
 also significant after BH. The factors carrying NO detectable platform signal (q > 0.05) are
@@ -4306,14 +4306,14 @@ also significant after BH. The factors carrying NO detectable platform signal (q
 keep the full 524-case cohort, do not restrict to a single platform, and apply NO batch correction
 (only 3 cases overlap the two platforms and the probe sets differ, so a ComBat-style correction
 could not be validated and might erase real signal along with the batch). Instead **adjust for
-platform as a model covariate and take predictors only from the platform-clean set** — see the
+platform as a model covariate and take predictors only from the platform-clean set** - see the
 SELECTION RULE in Task 4.7 Step 1. The count stays at 5 terms, still far under the EPV cap of 17.
 
 Assumes Modules 0–2 exist: `R/constants.R` already defines `EPV_CAP <- 10L` and the driver panel; `_targets.R` sources `R/functions_*.R` and already produces `mae_qc`, `rna_mat`, `mut_annot`, `mofa_factors`, `subtypes_mofa`. All test-runs below invoke functions from the global env so no package build is needed.
 
 ---
 
-### Task 4.1 — Phase-4 model constants
+### Task 4.1 - Phase-4 model constants
 
 **Files:**
 - Modify: `R/constants.R`
@@ -4342,7 +4342,7 @@ Assumes Modules 0–2 exist: `R/constants.R` already defines `EPV_CAP <- 10L` an
   ```bash
   Rscript -e 'library(testthat); source("R/constants.R"); test_file("tests/testthat/test-survival.R")'
   ```
-  Expected: `Error ... object 'HELDOUT_FRACTION' not found` (test errors — constant undefined).
+  Expected: `Error ... object 'HELDOUT_FRACTION' not found` (test errors - constant undefined).
 
 - [ ] **Step 3: Write minimal implementation.** Append to `R/constants.R` (do NOT redefine `EPV_CAP`):
   ```r
@@ -4370,7 +4370,7 @@ Assumes Modules 0–2 exist: `R/constants.R` already defines `EPV_CAP <- 10L` an
 
 ---
 
-### Task 4.2 — `fn_cindex` (Harrell C-index, reused from-scratch)
+### Task 4.2 - `fn_cindex` (Harrell C-index, reused from-scratch)
 
 **Files:**
 - Create: `R/functions_model_eval.R`
@@ -4378,7 +4378,7 @@ Assumes Modules 0–2 exist: `R/constants.R` already defines `EPV_CAP <- 10L` an
 
 **Interfaces:**
 - Consumes: nothing (pure).
-- Produces: `fn_cindex(time: numeric, status: integer, risk: numeric) -> numeric` — Harrell's concordance; `risk` is a linear-predictor / mortality where **higher = worse prognosis**. Returns `NA_real_` when no permissible pairs.
+- Produces: `fn_cindex(time: numeric, status: integer, risk: numeric) -> numeric` - Harrell's concordance; `risk` is a linear-predictor / mortality where **higher = worse prognosis**. Returns `NA_real_` when no permissible pairs.
 
 - [ ] **Step 1: Write the failing test.** Append to `tests/testthat/test-survival.R`:
   ```r
@@ -4450,7 +4450,7 @@ Assumes Modules 0–2 exist: `R/constants.R` already defines `EPV_CAP <- 10L` an
 
 ---
 
-### Task 4.3 — `fn_calibration` (grouped calibration at a fixed horizon)
+### Task 4.3 - `fn_calibration` (grouped calibration at a fixed horizon)
 
 **Files:**
 - Modify: `R/functions_model_eval.R`
@@ -4532,7 +4532,7 @@ Assumes Modules 0–2 exist: `R/constants.R` already defines `EPV_CAP <- 10L` an
 
 ---
 
-### Task 4.4 — Split + EPV-cap helpers and `fn_fit_cox`
+### Task 4.4 - Split + EPV-cap helpers and `fn_fit_cox`
 
 **Files:**
 - Create: `R/functions_survival.R`
@@ -4541,7 +4541,7 @@ Assumes Modules 0–2 exist: `R/constants.R` already defines `EPV_CAP <- 10L` an
 **Interfaces:**
 - Consumes: `survival::coxph` (`survival` 3.8-9), constants `EPV_CAP`, `MODEL_SEED`, `HELDOUT_FRACTION`.
 - Produces:
-  - `fn_max_predictors(n_events: integer, epv_cap: integer = EPV_CAP) -> integer` — `floor(n_events / epv_cap)`.
+  - `fn_max_predictors(n_events: integer, epv_cap: integer = EPV_CAP) -> integer` - `floor(n_events / epv_cap)`.
   - `fn_split_train_test(surv_df: data.frame, split: numeric, seed: integer = MODEL_SEED) -> list(train, test)`.
   - `fn_fit_cox(surv_df: data.frame, predictors: character, split: numeric = HELDOUT_FRACTION, seed: integer = MODEL_SEED) -> list(model, predictors, train, test, risk_train, risk_test, n_events, max_predictors)`. `surv_df` must contain numeric `time` and integer `status`. **Throws** when `length(predictors) > fn_max_predictors(n_events)`.
 
@@ -4683,7 +4683,7 @@ Assumes Modules 0–2 exist: `R/constants.R` already defines `EPV_CAP <- 10L` an
 
 ---
 
-### Task 4.5 — `fn_fit_penalised_cox` (glmnet 5.0)
+### Task 4.5 - `fn_fit_penalised_cox` (glmnet 5.0)
 
 **Files:**
 - Modify: `R/functions_survival.R`
@@ -4782,7 +4782,7 @@ Assumes Modules 0–2 exist: `R/constants.R` already defines `EPV_CAP <- 10L` an
 
 ---
 
-### Task 4.6 — `fn_fit_rsf` (randomForestSRC 3.6.2)
+### Task 4.6 - `fn_fit_rsf` (randomForestSRC 3.6.2)
 
 **Files:**
 - Modify: `R/functions_survival.R`
@@ -4842,14 +4842,14 @@ Assumes Modules 0–2 exist: `R/constants.R` already defines `EPV_CAP <- 10L` an
 
 ---
 
-### Task 4.7 — Wire survival targets into the DAG (`survival_df`, `cox_fit`, `penalised_cox_fit`, `rsf_fit`, `survival_metrics`)
+### Task 4.7 - Wire survival targets into the DAG (`survival_df`, `cox_fit`, `penalised_cox_fit`, `rsf_fit`, `survival_metrics`)
 
 **Files:**
 - Modify: `_targets.R`
 - Test: `tar_make()` reaching `survival_metrics` + an assertion on its value (pipeline-wiring test).
 
 **Interfaces:**
-- Consumes: `clinical` — the CANONICAL OS frame `data.frame(sample_id, os_time, os_event, platform)` derived in **Task 3.6** (Module 1/3), which is where the HM27/HM450 adjustment covariate comes from. `methyl_platform` is deliberately NOT consumed here: `clinical` already carries it, and joining it a second time would put two derivations of the same covariate in one DAG; `mae_qc` (Module 1, for the non-survival covariates only), `mofa_factors: matrix (samples × factors)`, `subtypes_mofa` (Module 2); `fn_fit_cox / fn_fit_penalised_cox / fn_fit_rsf` (Task 4.4–4.6); `fn_cindex / fn_calibration` (Task 4.2–4.3).
+- Consumes: `clinical` - the CANONICAL OS frame `data.frame(sample_id, os_time, os_event, platform)` derived in **Task 3.6** (Module 1/3), which is where the HM27/HM450 adjustment covariate comes from. `methyl_platform` is deliberately NOT consumed here: `clinical` already carries it, and joining it a second time would put two derivations of the same covariate in one DAG; `mae_qc` (Module 1, for the non-survival covariates only), `mofa_factors: matrix (samples × factors)`, `subtypes_mofa` (Module 2); `fn_fit_cox / fn_fit_penalised_cox / fn_fit_rsf` (Task 4.4–4.6); `fn_cindex / fn_calibration` (Task 4.2–4.3).
 - Produces: targets `survival_df`, `survival_predictors`, `cox_fit`, `penalised_cox_fit`, `rsf_fit`, `survival_metrics: list(cindex = list(cox, penalised, rsf), optimism = list(cox), calibration = data.frame)`.
 
 - [ ] **Step 0: Confirm the actual `colData` coding before wiring (load-bearing check).** `curatedTCGAData` legacy `colData` can code `vital_status` numerically (`1` = dead) rather than as `"Dead"/"Alive"`; if the decode is wrong, `status` collapses to all-zero, every fit degenerates, and the EPV cap silently computes 0 predictors. Inspect the real columns and coding once, so the decode below matches version 2.0.1 `colData`:
@@ -4866,7 +4866,7 @@ Assumes Modules 0–2 exist: `R/constants.R` already defines `EPV_CAP <- 10L` an
   Expected: all five columns present; `vital_status` shows the event coding (either `1`/`0` or `"dead"`/`"alive"`) and `pathologic_stage` shows `"stage i"…"stage iv"` levels. If any required column is absent or named differently in this snapshot, adjust the names in Step 1 to the confirmed ones before proceeding.
   Partial confirmation already in hand: the OS-event census (run 30708943504) read `vital_status` / `days_to_death` / `days_to_last_followup` off this snapshot's `colData` and the tolerant decode below (`vital_status` ∈ {`dead`, `deceased`, `1`}) yielded a non-degenerate 177 events over all 536 cases and 173 over the 524-case main cohort. Still run this step to confirm `years_to_birth` and the `pathologic_stage` levels, which the census did not touch.
 
-- [ ] **Step 1: Add the survival predictor set and design-assembly target.** In `_targets.R`, inside the `list(...)` of targets, add. The `vital_status` decode is deliberately robust — it treats a subject as an event if the value is `1`, `"1"`, `"dead"`, or `"deceased"` (case/space-insensitive) — and the target fails fast (`stopifnot`) if required columns are missing or the decode yields zero events, so a coding mismatch surfaces loudly instead of degenerating the fits:
+- [ ] **Step 1: Add the survival predictor set and design-assembly target.** In `_targets.R`, inside the `list(...)` of targets, add. The `vital_status` decode is deliberately robust - it treats a subject as an event if the value is `1`, `"1"`, `"dead"`, or `"deceased"` (case/space-insensitive) - and the target fails fast (`stopifnot`) if required columns are missing or the decode yields zero events, so a coding mismatch surfaces loudly instead of degenerating the fits:
   ```r
   ,
   # ---- Module 4: survival ----
@@ -5068,7 +5068,7 @@ Assumes Modules 0–2 exist: `R/constants.R` already defines `EPV_CAP <- 10L` an
         " C-index(cox)=", round(m$cindex$cox,3),
         " optimism=", round(m$optimism$cox,3), "\n")'
   ```
-  Expected: `survival_metrics OK: n_events= 173  C-index(cox)= 0.6xx  optimism= 0.0xx`. The measured OS-event census on the 524-case main cohort is **173 events / 522 usable** (run 30708943504), so `n_events` should land at 173 or a little below it after the complete-case filtering on factors/clinical and the `time > 0` filter; anything near zero means the `vital_status` decode is wrong. C-index and optimism are not yet measured (no model has been fitted) — only that they are finite and in range.
+  Expected: `survival_metrics OK: n_events= 173  C-index(cox)= 0.6xx  optimism= 0.0xx`. The measured OS-event census on the 524-case main cohort is **173 events / 522 usable** (run 30708943504), so `n_events` should land at 173 or a little below it after the complete-case filtering on factors/clinical and the `time > 0` filter; anything near zero means the `vital_status` decode is wrong. C-index and optimism are not yet measured (no model has been fitted) - only that they are finite and in range.
 
 - [ ] **Step 5: Commit.**
   ```bash
@@ -5078,7 +5078,7 @@ Assumes Modules 0–2 exist: `R/constants.R` already defines `EPV_CAP <- 10L` an
 
 ---
 
-### Task 4.8 — Python BAP1-from-expression classifier (non-circular) + pytest
+### Task 4.8 - Python BAP1-from-expression classifier (non-circular) + pytest
 
 **Files:**
 - Create: `python/bap1_classifier.py`
@@ -5256,7 +5256,7 @@ Assumes Modules 0–2 exist: `R/constants.R` already defines `EPV_CAP <- 10L` an
 
 ---
 
-### Task 4.9 — Wire the `bap1_auroc` target via reticulate
+### Task 4.9 - Wire the `bap1_auroc` target via reticulate
 
 **Files:**
 - Modify: `_targets.R`
@@ -5311,9 +5311,9 @@ Assumes Modules 0–2 exist: `R/constants.R` already defines `EPV_CAP <- 10L` an
 
 ---
 
-**Phase 4 exit criteria:** `survival_metrics` reports held-out C-index for Cox / penalised-Cox / RSF plus Cox optimism (apparent − validated) and a 5-year calibration table; `survival_df` inherits the OS decode from the canonical `clinical` target (Task 3.6) rather than re-deriving it — one decode, one harmonised sample key, no divergent second derivation in the DAG — and asserts a non-zero event count after the join so no model silently degenerates on a coding mismatch; `bap1_auroc` reports CV + held-out AUROC for the non-circular BAP1 task; the `python` package imports cleanly under pytest (via `pyproject.toml` `pythonpath` + `python/__init__.py`); all Phase-4 unit tests pass (`test-survival.R`, `test_bap1_classifier.py`); the EPV cap is enforced with a test proving the guard throws. Additionally, `survival_predictors` contains NO factor whose platform-association q ≤ 0.05 in run 30911448546 (Factor2 and Factor3 are excluded on that ground) and DOES contain `platform` as an adjustment covariate; `survival_df` carries a complete two-level `platform` column **INHERITED from the canonical `clinical` target (Task 3.6) — never re-joined from `methyl_platform`, which would put two derivations of one covariate in the same DAG** (this clause used to require the re-join; commit 3813843 removed that second derivation from the Task 4.7 body and the committed `_targets.R` forbids it in a long comment, so the criterion as written would have failed a correct implementation and invited the drift back).
+**Phase 4 exit criteria:** `survival_metrics` reports held-out C-index for Cox / penalised-Cox / RSF plus Cox optimism (apparent − validated) and a 5-year calibration table; `survival_df` inherits the OS decode from the canonical `clinical` target (Task 3.6) rather than re-deriving it - one decode, one harmonised sample key, no divergent second derivation in the DAG - and asserts a non-zero event count after the join so no model silently degenerates on a coding mismatch; `bap1_auroc` reports CV + held-out AUROC for the non-circular BAP1 task; the `python` package imports cleanly under pytest (via `pyproject.toml` `pythonpath` + `python/__init__.py`); all Phase-4 unit tests pass (`test-survival.R`, `test_bap1_classifier.py`); the EPV cap is enforced with a test proving the guard throws. Additionally, `survival_predictors` contains NO factor whose platform-association q ≤ 0.05 in run 30911448546 (Factor2 and Factor3 are excluded on that ground) and DOES contain `platform` as an adjustment covariate; `survival_df` carries a complete two-level `platform` column **INHERITED from the canonical `clinical` target (Task 3.6) - never re-joined from `methyl_platform`, which would put two derivations of one covariate in the same DAG** (this clause used to require the re-join; commit 3813843 removed that second derivation from the Task 4.7 body and the committed `_targets.R` forbids it in a long comment, so the criterion as written would have failed a correct implementation and invited the drift back).
 
-**STATUS: IMPLEMENTED AND UNIT-TESTED ON FIXTURES (commits f043b35..c6a0256, hardened through the Phase-4 review); NEVER RUN ON REAL DATA.** `R/functions_survival.R` and `R/functions_model_eval.R` carry all seven functions, `python/bap1_classifier.py` carries the classifier, and `_targets.R` wires `survival_df` / `cox_fit` / `penalised_cox_fit` / `rsf_fit` / `survival_metrics` / `bap1_auroc`. None of those targets has been built in any workflow, so **no C-index, calibration, hazard ratio, discrimination or AUROC is claimed anywhere.** What the review added, and what a replay must not drop: `fn_cindex` counts same-time censoring and so matches `survival::concordance` on the integer-day times TCGA actually records; the EPV cap is measured on the training rows and in design DF; the three arms carry a discrimination floor on a signal fixture AND a null detector on a noise fixture (a random risk vector previously left the suite byte-identical to baseline); four `ANCHOR:` blocks in `test-survival.R` read the real `survival_df` / `cox_fit` / `survival_metrics` / `bap1_auroc` and execute at LEVEL 3 of `verify-module2.yml`, which now also installs glmnet / randomForestSRC / survival / scikit-learn and fails the job if any target recorded an error. Held-out figures, when produced, are unsupervised-transductive: MOFA and the variance filter see all 524 cases before the split — outcome-blind, so no label leak, but not fully out-of-sample. These feed Module 5 (`dashboard/survival.qmd`, README results).
+**STATUS: IMPLEMENTED AND UNIT-TESTED ON FIXTURES (commits f043b35..c6a0256, hardened through the Phase-4 review); NEVER RUN ON REAL DATA.** `R/functions_survival.R` and `R/functions_model_eval.R` carry all seven functions, `python/bap1_classifier.py` carries the classifier, and `_targets.R` wires `survival_df` / `cox_fit` / `penalised_cox_fit` / `rsf_fit` / `survival_metrics` / `bap1_auroc`. None of those targets has been built in any workflow, so **no C-index, calibration, hazard ratio, discrimination or AUROC is claimed anywhere.** What the review added, and what a replay must not drop: `fn_cindex` counts same-time censoring and so matches `survival::concordance` on the integer-day times TCGA actually records; the EPV cap is measured on the training rows and in design DF; the three arms carry a discrimination floor on a signal fixture AND a null detector on a noise fixture (a random risk vector previously left the suite byte-identical to baseline); four `ANCHOR:` blocks in `test-survival.R` read the real `survival_df` / `cox_fit` / `survival_metrics` / `bap1_auroc` and execute at LEVEL 3 of `verify-module2.yml`, which now also installs glmnet / randomForestSRC / survival / scikit-learn and fails the job if any target recorded an error. Held-out figures, when produced, are unsupervised-transductive: MOFA and the variance filter see all 524 cases before the split - outcome-blind, so no label leak, but not fully out-of-sample. These feed Module 5 (`dashboard/survival.qmd`, README results).
 
 ---
 
@@ -5323,22 +5323,22 @@ This phase turns the frozen Module 1–4 `_targets` outputs into an interactive 
 
 **Precondition (established by Task 5.0, stated in README as "run locally once"):** `scripts/run_full_pipeline.R` has already been executed locally with `HEAVY_PULL=true`, and `scripts/freeze_release_assets.R` has published the resulting `_targets/` store as a GitHub **release asset** (the `.gitignore` from Task 0.1 excludes `_targets/objects` and `_targets/meta`, so the store ships as a release asset, not via git). After a full run the store holds the Module 1–4 outputs in their **native producer shapes**:
 
-- `mofa_factors` — numeric matrix (`rownames` = sample_id, `colnames` = `Factor1..Factork`).
-- `mofa_varexp` — numeric **matrix** (rows = factors, cols = views), from `fn_variance_explained` (Task 2.2).
-- `subtypes_mofa` — a **named factor** (names = sample_id, values = subtype), from `fn_assign_subtypes` (Task 2.3).
-- `concordance` — `list(ari, ...)` (Task 2.x).
-- `sanity_results` — a **nested named list** of **five** elements, `list(mutation_freq, bap1_survival, methyl_strata, ccab_signature, subtype_platform)`, each a structured pass/fail element with `$pass`/`$label` (Task 3.6). `subtype_platform` is the platform-cleanliness guard on the MOFA subtype assignment; `methyl_strata` additionally carries `$message`, `$within_platform` and `$merged_exceeds_within`.
-- `survival_df` — `data.frame(sample_id, time, status, Factor1, Factor4, age_years, stage_num, platform)` (the survival-prep target feeding the Cox fit, Task 4.7). **POST-CORRECTION SHAPE — see the SELECTION RULE in Task 4.7 Step 1, which is the single source of truth for this vector.** Factor2 and Factor3 are NOT here: the platform diagnostic (run 30911448546) disqualified both (Factor2 AUC 0.888, q 2.9e-50; Factor3 0.658, q 2.7e-09), and `platform` is present as the adjustment covariate. Anyone implementing Phase 5 from an earlier version of this line would reintroduce the confounded set.
-- `cox_fit` — the **list** returned by `fn_fit_cox` (`$model` is the `coxph` object fit on `survival_predictors = c("Factor1","Factor4","age_years","stage_num","platform")` — there is **no** `subtype` term), plus `$test`, `$risk_test`, ... (Task 4.7). Same cross-reference: Task 4.7's SELECTION RULE governs; if these two disagree, Task 4.7 is right and this line is stale.
-- `survival_metrics` — `list(cindex = list(cox, penalised, rsf), optimism = list(cox), calibration = data.frame(predicted, observed))` (Task 4.7).
-- `bap1_auroc` — `list(cv_auroc, heldout_auroc)` (Task 4.x).
-- `rna_mat` — numeric matrix (`rownames` = gene symbol, `colnames` = sample_id), log-transformed normalised expression.
+- `mofa_factors` - numeric matrix (`rownames` = sample_id, `colnames` = `Factor1..Factork`).
+- `mofa_varexp` - numeric **matrix** (rows = factors, cols = views), from `fn_variance_explained` (Task 2.2).
+- `subtypes_mofa` - a **named factor** (names = sample_id, values = subtype), from `fn_assign_subtypes` (Task 2.3).
+- `concordance` - `list(ari, ...)` (Task 2.x).
+- `sanity_results` - a **nested named list** of **five** elements, `list(mutation_freq, bap1_survival, methyl_strata, ccab_signature, subtype_platform)`, each a structured pass/fail element with `$pass`/`$label` (Task 3.6). `subtype_platform` is the platform-cleanliness guard on the MOFA subtype assignment; `methyl_strata` additionally carries `$message`, `$within_platform` and `$merged_exceeds_within`.
+- `survival_df` - `data.frame(sample_id, time, status, Factor1, Factor4, age_years, stage_num, platform)` (the survival-prep target feeding the Cox fit, Task 4.7). **POST-CORRECTION SHAPE - see the SELECTION RULE in Task 4.7 Step 1, which is the single source of truth for this vector.** Factor2 and Factor3 are NOT here: the platform diagnostic (run 30911448546) disqualified both (Factor2 AUC 0.888, q 2.9e-50; Factor3 0.658, q 2.7e-09), and `platform` is present as the adjustment covariate. Anyone implementing Phase 5 from an earlier version of this line would reintroduce the confounded set.
+- `cox_fit` - the **list** returned by `fn_fit_cox` (`$model` is the `coxph` object fit on `survival_predictors = c("Factor1","Factor4","age_years","stage_num","platform")` - there is **no** `subtype` term), plus `$test`, `$risk_test`, ... (Task 4.7). Same cross-reference: Task 4.7's SELECTION RULE governs; if these two disagree, Task 4.7 is right and this line is stale.
+- `survival_metrics` - `list(cindex = list(cox, penalised, rsf), optimism = list(cox), calibration = data.frame(predicted, observed))` (Task 4.7).
+- `bap1_auroc` - `list(cv_auroc, heldout_auroc)` (Task 4.x).
+- `rna_mat` - numeric matrix (`rownames` = gene symbol, `colnames` = sample_id), log-transformed normalised expression.
 
 Because the Module 2/3/4 producers are not rectangular join-ready shapes, **Task 5.2 adds three tidy consumption targets** (`subtypes_df`, `km_subtype_df`, `sanity_table`) that adapt those outputs once. Every render below reads the frozen store via `targets::tar_read(..., store = "../_targets")`; nothing in this phase recomputes the research core.
 
 ---
 
-### Task 5.0 — Local full-run + release-asset freeze scripts
+### Task 5.0 - Local full-run + release-asset freeze scripts
 
 **Files:**
 - Create: `scripts/run_full_pipeline.R`
@@ -5348,8 +5348,8 @@ Because the Module 2/3/4 producers are not rectangular join-ready shapes, **Task
 **Interfaces:**
 - Consumes: the whole `_targets` DAG (Modules 0–4).
 - Produces:
-  - `scripts/run_full_pipeline.R` — runs the full pipeline locally with `HEAVY_PULL=true` (spec §8/§13 "run locally once").
-  - `scripts/freeze_release_assets.R` — packages the frozen `_targets/` store into `targets-store.tar.gz` and publishes it as the `targets-store` GitHub release asset. This is the mechanism `pages.yml`/`ci.yml`/`cron.yml` restore from, since the store is git-ignored.
+  - `scripts/run_full_pipeline.R` - runs the full pipeline locally with `HEAVY_PULL=true` (spec §8/§13 "run locally once").
+  - `scripts/freeze_release_assets.R` - packages the frozen `_targets/` store into `targets-store.tar.gz` and publishes it as the `targets-store` GitHub release asset. This is the mechanism `pages.yml`/`ci.yml`/`cron.yml` restore from, since the store is git-ignored.
 
 - [ ] **Step 1: Write `scripts/run_full_pipeline.R`.**
 
@@ -5416,7 +5416,7 @@ git commit -m "chore: add local full-run and release-asset freeze scripts"
 
 ---
 
-### Task 5.1 — Live GDC-API query function (`fn_query_gdc` + pure parser)
+### Task 5.1 - Live GDC-API query function (`fn_query_gdc` + pure parser)
 
 **Files:**
 - Modify: `R/constants.R`
@@ -5426,7 +5426,7 @@ git commit -m "chore: add local full-run and release-asset freeze scripts"
 **Interfaces:**
 - Consumes: nothing from other modules (independent live source); constants below.
 - Produces:
-  - `fn_parse_gdc_counts(buckets: list) -> data.frame(category: chr, n: int)` — pure, deterministic, sorted descending by `n`.
+  - `fn_parse_gdc_counts(buckets: list) -> data.frame(category: chr, n: int)` - pure, deterministic, sorted descending by `n`.
   - `fn_query_gdc(project_id = GDC_PROJECT_ID, facet_fields = GDC_FACET_FIELDS, base_url = GDC_API_BASE) -> list(project_id: chr, total_cases: int, facets: named list of data.frame(category, n), retrieved_at: POSIXct)`.
   - Constants `GDC_API_BASE`, `GDC_PROJECT_ID`, `GDC_FACET_FIELDS`.
 
@@ -5469,7 +5469,7 @@ Error in fn_parse_gdc_counts(buckets) :
 Execution halted
 ```
 
-- [ ] **Step 3: Implement `R/functions_gdc_live.R` (GREEN).** Complete file (base R only — no undeclared deps; `httr` is in the pinned stack):
+- [ ] **Step 3: Implement `R/functions_gdc_live.R` (GREEN).** Complete file (base R only - no undeclared deps; `httr` is in the pinned stack):
 
 ```r
 # Module 5 — live GDC panel. Independent of the frozen research core.
@@ -5546,7 +5546,7 @@ Rscript -e '
 '
 ```
 
-Expected output (values may drift as GDC updates — that is the point). This is a
+Expected output (values may drift as GDC updates - that is the point). This is a
 **live-GDC** count and is NOT the frozen snapshot's case count (`colData` on the
 20160128 snapshot carries 536 cases); never quote one for the other:
 
@@ -5564,7 +5564,7 @@ git commit -m "feat: add live GDC case-count query for dashboard panel"
 
 ---
 
-### Task 5.2 — Wire the `gdc_live_panel` + tidy dashboard-consumption targets
+### Task 5.2 - Wire the `gdc_live_panel` + tidy dashboard-consumption targets
 
 **Files:**
 - Modify: `_targets.R`
@@ -5573,10 +5573,10 @@ git commit -m "feat: add live GDC case-count query for dashboard panel"
 **Interfaces:**
 - Consumes: `fn_query_gdc()` (Task 5.1); `subtypes_mofa` (named factor, Module 2), `survival_df` (data.frame, Module 4), `sanity_results` (nested named list, Module 3).
 - Produces:
-  - `gdc_live_panel` — the `list(...)` returned by `fn_query_gdc`, with `cue = tar_cue(mode = "always")` so every pipeline/cron run re-queries GDC.
-  - `subtypes_df` — `data.frame(sample_id: chr, subtype: chr)` adapted from the named factor `subtypes_mofa` (the shape every Module 5 page needs).
-  - `km_subtype_df` — `data.frame(sample_id, time, status, subtype)` joining `survival_df` to `subtypes_df`; the KM-by-subtype source (the Cox model has no `subtype` term, so KM must be built from this join, not from `model.frame(cox_fit$model)`).
-  - `sanity_table` — `data.frame(check: chr, passed: lgl, detail: chr)` flattened from the nested `sanity_results` list, for the landing-page summary/table.
+  - `gdc_live_panel` - the `list(...)` returned by `fn_query_gdc`, with `cue = tar_cue(mode = "always")` so every pipeline/cron run re-queries GDC.
+  - `subtypes_df` - `data.frame(sample_id: chr, subtype: chr)` adapted from the named factor `subtypes_mofa` (the shape every Module 5 page needs).
+  - `km_subtype_df` - `data.frame(sample_id, time, status, subtype)` joining `survival_df` to `subtypes_df`; the KM-by-subtype source (the Cox model has no `subtype` term, so KM must be built from this join, not from `model.frame(cox_fit$model)`).
+  - `sanity_table` - `data.frame(check: chr, passed: lgl, detail: chr)` flattened from the nested `sanity_results` list, for the landing-page summary/table.
 
 - [ ] **Step 1: Add the targets to `_targets.R`.** Insert into the target list (after the Module 4 targets, before the dashboard target added in Task 5.9):
 
@@ -5676,7 +5676,7 @@ git commit -m "feat: wire always-refresh gdc_live_panel + tidy dashboard targets
 
 ---
 
-### Task 5.3 — Quarto project config + shared theme
+### Task 5.3 - Quarto project config + shared theme
 
 **Files:**
 - Create: `dashboard/_quarto.yml`
@@ -5762,7 +5762,7 @@ git commit -m "chore: add Quarto website config and dashboard theme"
 
 ---
 
-### Task 5.4 — MOFA factors page (`dashboard/factors.qmd`)
+### Task 5.4 - MOFA factors page (`dashboard/factors.qmd`)
 
 **Files:**
 - Create: `dashboard/factors.qmd`
@@ -5859,7 +5859,7 @@ git commit -m "feat: add MOFA2 factors dashboard page"
 
 ---
 
-### Task 5.5 — Survival page (`dashboard/survival.qmd`)
+### Task 5.5 - Survival page (`dashboard/survival.qmd`)
 
 **Files:**
 - Create: `dashboard/survival.qmd`
@@ -5867,7 +5867,7 @@ git commit -m "feat: add MOFA2 factors dashboard page"
 
 **Interfaces:**
 - Consumes (frozen `_targets` store contract):
-  - `km_subtype_df` (Task 5.2): `data.frame(sample_id, time, status, subtype)` — the KM-by-subtype source (the Cox model has **no** `subtype` term, so KM is built from this join, not from `cox_fit`).
+  - `km_subtype_df` (Task 5.2): `data.frame(sample_id, time, status, subtype)` - the KM-by-subtype source (the Cox model has **no** `subtype` term, so KM is built from this join, not from `cox_fit`).
   - `survival_metrics`: `list(cindex = list(cox, penalised, rsf), optimism = list(cox), calibration = data.frame(predicted, observed))`. The held-out C-index is `survival_metrics$cindex$cox`.
 - Produces: rendered `../_site/survival.html` (Plotly Kaplan–Meier by subtype + C-index + calibration).
 
@@ -5957,7 +5957,7 @@ git commit -m "feat: add survival dashboard page with KM and calibration"
 
 ---
 
-### Task 5.6 — Main interactive dashboard (`dashboard/dashboard.qmd`)
+### Task 5.6 - Main interactive dashboard (`dashboard/dashboard.qmd`)
 
 **Files:**
 - Create: `dashboard/dashboard.qmd`
@@ -5969,7 +5969,7 @@ git commit -m "feat: add survival dashboard page with KM and calibration"
   - `km_subtype_df` (Task 5.2): `data.frame(sample_id, time, status, subtype)`.
   - `survival_metrics` (Task 4.7): held-out C-index at `survival_metrics$cindex$cox`.
   - `bap1_auroc`: `list(cv_auroc, heldout_auroc)`; `concordance`: `list(ari, ...)`.
-  - `rna_mat`: numeric matrix (`rownames` = gene symbol, `colnames` = sample_id) — log-transformed normalised expression.
+  - `rna_mat`: numeric matrix (`rownames` = gene symbol, `colnames` = sample_id) - log-transformed normalised expression.
   - `DRIVER_GENES` from `R/constants.R` (VHL/PBRM1/SETD2/BAP1/MTOR/KDM5C).
 - Produces: rendered `../_site/dashboard.html` (Quarto **dashboard** format: value boxes + subtype bar + KM + gene view).
 
@@ -6095,7 +6095,7 @@ git commit -m "feat: add main interactive KIRC dashboard page"
 
 ---
 
-### Task 5.7 — Live GDC panel page (`dashboard/live-gdc.qmd`)
+### Task 5.7 - Live GDC panel page (`dashboard/live-gdc.qmd`)
 
 **Files:**
 - Create: `dashboard/live-gdc.qmd`
@@ -6176,7 +6176,7 @@ git commit -m "feat: add live GDC statistics dashboard panel"
 
 ---
 
-### Task 5.8 — Landing page with skills-mapping table (`dashboard/index.qmd`)
+### Task 5.8 - Landing page with skills-mapping table (`dashboard/index.qmd`)
 
 **Files:**
 - Create: `dashboard/index.qmd`
@@ -6277,7 +6277,7 @@ git commit -m "feat: add landing page with skills-mapping table"
 
 ---
 
-### Task 5.9 — Wire the `dashboard_site` target (render whole site from cache)
+### Task 5.9 - Wire the `dashboard_site` target (render whole site from cache)
 
 **Files:**
 - Modify: `_targets.R`
@@ -6285,7 +6285,7 @@ git commit -m "feat: add landing page with skills-mapping table"
 
 **Interfaces:**
 - Consumes: `mofa_factors`, `mofa_varexp` (Module 2); `subtypes_df`, `km_subtype_df`, `sanity_table` (tidy targets, Task 5.2); `concordance` (Module 2); `survival_metrics`, `bap1_auroc` (Module 4); `rna_mat` (Module 1–2); `gdc_live_panel` (Task 5.2). Naming these symbols inside the target expression creates the DAG edges so the site re-renders when any upstream target changes (and, transitively, when `subtypes_mofa`, `survival_df`, or `sanity_results` change, since the tidy targets depend on them).
-- Produces: target `dashboard_site` (`format = "file"`, path `"_site"`) — the rendered Quarto site.
+- Produces: target `dashboard_site` (`format = "file"`, path `"_site"`) - the rendered Quarto site.
 
 - [ ] **Step 1: Add the target to `_targets.R`.** Ensure `library(quarto)` (or namespaced calls) is available via `tar_option_set(packages = c(..., "quarto"))`, then add after the Task 5.2 targets:
 
@@ -6336,7 +6336,7 @@ git commit -m "feat: wire dashboard_site target to render Quarto site from cache
 
 ---
 
-### Task 5.10 — GitHub Pages deploy workflow (`.github/workflows/pages.yml`)
+### Task 5.10 - GitHub Pages deploy workflow (`.github/workflows/pages.yml`)
 
 **Files:**
 - Modify: `.github/workflows/pages.yml` (replaces the Module 0 hello-world)
@@ -6425,7 +6425,7 @@ git commit -m "ci: restore cached store, render dashboard, deploy to Pages"
 
 ---
 
-### Task 5.11 — Weekly cron workflow (`.github/workflows/cron.yml`)
+### Task 5.11 - Weekly cron workflow (`.github/workflows/cron.yml`)
 
 **Files:**
 - Modify: `.github/workflows/cron.yml` (replaces the Module 0 hello-world)
@@ -6517,7 +6517,7 @@ git commit -m "ci: weekly cron refreshes live GDC panel, re-freezes store, detec
 
 ---
 
-### Task 5.12 — Runtime + honest CI-scope docs (`docs/runtime.md`)
+### Task 5.12 - Runtime + honest CI-scope docs (`docs/runtime.md`)
 
 **Files:**
 - Create: `docs/runtime.md`
@@ -6525,7 +6525,7 @@ git commit -m "ci: weekly cron refreshes live GDC panel, re-freezes store, detec
 
 **Interfaces:**
 - Consumes: nothing (documentation).
-- Produces: `docs/runtime.md` — the runtime/hardware table and the honest CI-scope statement referenced by the README.
+- Produces: `docs/runtime.md` - the runtime/hardware table and the honest CI-scope statement referenced by the README.
 
 - [ ] **Step 1: Write `docs/runtime.md`.**
 
@@ -6600,7 +6600,7 @@ git commit -m "docs: add runtime, hardware, and honest CI-scope doc"
 
 ---
 
-### Task 5.13 — README with skills-mapping table + limitations (`README.md`)
+### Task 5.13 - README with skills-mapping table + limitations (`README.md`)
 
 **Files:**
 - Create/Modify: `README.md`
@@ -6608,7 +6608,7 @@ git commit -m "docs: add runtime, hardware, and honest CI-scope doc"
 
 **Interfaces:**
 - Consumes: `docs/runtime.md` (linked); references `scripts/run_full_pipeline.R` + `scripts/freeze_release_assets.R` (Task 5.0). Reflects spec §1 (skills table), §8 (CI scope), §12 (limitations).
-- Produces: `README.md` — the repo front door.
+- Produces: `README.md` - the repo front door.
 
 - [ ] **Step 1: Write `README.md`.**
 
@@ -6720,7 +6720,7 @@ git commit -m "docs: add README with skills-mapping table and honest limitations
 
 ---
 
-### Task 5.14 — Interview talking-points doc (`docs/talking-points.md`)
+### Task 5.14 - Interview talking-points doc (`docs/talking-points.md`)
 
 **Files:**
 - Create: `docs/talking-points.md`
@@ -6728,7 +6728,7 @@ git commit -m "docs: add README with skills-mapping table and honest limitations
 
 **Interfaces:**
 - Consumes: nothing (documentation; mirrors spec §12).
-- Produces: `docs/talking-points.md` — the interview narrative and honest caveats.
+- Produces: `docs/talking-points.md` - the interview narrative and honest caveats.
 
 - [ ] **Step 1: Write `docs/talking-points.md`.**
 
@@ -6799,11 +6799,11 @@ git commit -m "docs: add interview talking-points with honest caveats"
 
 ## Phase 6: Single-cell (v1.1, non-blocking)
 
-This phase adds the GSE159115 scRNA-seq increment on a **separate branch** that can never block release of Modules 0–5. It ships the mandatory purity/immune confound gate (spec §10) — an ESTIMATE-based test of whether the bulk MOFA subtypes are merely a tumour-purity proxy — and only maps bulk subtype signatures onto single-cell programs *after* that gate, re-framing the conclusion if the gate fails. Clustering uses `sklearn.cluster.KMeans` on the PCA embedding (not `leiden`) to stay strictly within the pinned dependency set (`scikit-learn` is in `requirements.txt`; `leidenalg`/`igraph` are not — introducing them would violate the version-pinning constraint).
+This phase adds the GSE159115 scRNA-seq increment on a **separate branch** that can never block release of Modules 0–5. It ships the mandatory purity/immune confound gate (spec §10) - an ESTIMATE-based test of whether the bulk MOFA subtypes are merely a tumour-purity proxy - and only maps bulk subtype signatures onto single-cell programs *after* that gate, re-framing the conclusion if the gate fails. Clustering uses `sklearn.cluster.KMeans` on the PCA embedding (not `leiden`) to stay strictly within the pinned dependency set (`scikit-learn` is in `requirements.txt`; `leidenalg`/`igraph` are not - introducing them would violate the version-pinning constraint).
 
 ---
 
-### Task 6.1 — Isolate the single-cell increment on its own branch + config flag
+### Task 6.1 - Isolate the single-cell increment on its own branch + config flag
 
 **Files:**
 - Modify: `config/params.yml`
@@ -6811,7 +6811,7 @@ This phase adds the GSE159115 scRNA-seq increment on a **separate branch** that 
 
 **Interfaces:**
 - Consumes: the `HEAVY_PULL` flag convention established in Module 0's `config/params.yml`.
-- Produces: config keys `singlecell.run_singlecell` (logical), `singlecell.gse_accession` (chr), `singlecell.h5_path` (chr) — consumed by the `_targets.R` gate in Task 6.8.
+- Produces: config keys `singlecell.run_singlecell` (logical), `singlecell.gse_accession` (chr), `singlecell.h5_path` (chr) - consumed by the `_targets.R` gate in Task 6.8.
 
 - [ ] **Step 1: Create the non-blocking branch off the released Modules 0–5 tip.**
   ```bash
@@ -6824,7 +6824,7 @@ This phase adds the GSE159115 scRNA-seq increment on a **separate branch** that 
   singlecell
   ```
 
-- [ ] **Step 2: Add the single-cell config block (heavy pull OFF by default — CI never triggers the GSE download).** Append to `config/params.yml`:
+- [ ] **Step 2: Add the single-cell config block (heavy pull OFF by default - CI never triggers the GSE download).** Append to `config/params.yml`:
   ```yaml
   singlecell:
     run_singlecell: false        # heavy: GSE159115 H5 pull + scanpy QC/cluster; local-only, OFF in CI
@@ -6849,12 +6849,12 @@ This phase adds the GSE159115 scRNA-seq increment on a **separate branch** that 
 
 ---
 
-### Task 6.2 — ESTIMATE score → tumour-purity conversion (pure helper, TDD)
+### Task 6.2 - ESTIMATE score → tumour-purity conversion (pure helper, TDD)
 
 **Files:**
 - Modify: `R/constants.R`
 - Create: `R/functions_purity.R`
-- Test: `tests/testthat/test-purity.R` (new file — follows the "one `test-<module>.R` per module" convention in the foundation)
+- Test: `tests/testthat/test-purity.R` (new file - follows the "one `test-<module>.R` per module" convention in the foundation)
 
 **Interfaces:**
 - Consumes: nothing (pure numeric helper).
@@ -6897,7 +6897,7 @@ This phase adds the GSE159115 scRNA-seq increment on a **separate branch** that 
   ```bash
   Rscript -e 'testthat::test_file("tests/testthat/test-purity.R")'
   ```
-  Expected output (error, not a clean fail — the symbol does not exist):
+  Expected output (error, not a clean fail - the symbol does not exist):
   ```
   Error in fn_purity_from_estimate_score(estimate_score) :
     could not find function "fn_purity_from_estimate_score"
@@ -6934,7 +6934,7 @@ This phase adds the GSE159115 scRNA-seq increment on a **separate branch** that 
 
 ---
 
-### Task 6.3 — Subtype ↔ purity proxy test (the confound gate, TDD)
+### Task 6.3 - Subtype ↔ purity proxy test (the confound gate, TDD)
 
 **Files:**
 - Modify: `R/constants.R`, `R/functions_purity.R`
@@ -6944,7 +6944,7 @@ This phase adds the GSE159115 scRNA-seq increment on a **separate branch** that 
 - Consumes: `fn_purity_from_estimate_score` (Task 6.2).
 - Produces:
   - `fn_kruskal_eta_squared(h_stat: numeric, n_levels: integer, n: integer) -> numeric`
-  - `fn_subtype_purity_test(purity_df: data.frame, subtypes: data.frame) -> list` with fields `purity_p`, `immune_p`, `purity_eta2`, `is_purity_proxy` (logical — the mandatory gate consumed by Task 6.8), `n`. `purity_df` has columns `sample_id`, `ImmuneScore`, `TumorPurity`; `subtypes` has columns `sample_id`, `subtype`.
+  - `fn_subtype_purity_test(purity_df: data.frame, subtypes: data.frame) -> list` with fields `purity_p`, `immune_p`, `purity_eta2`, `is_purity_proxy` (logical - the mandatory gate consumed by Task 6.8), `n`. `purity_df` has columns `sample_id`, `ImmuneScore`, `TumorPurity`; `subtypes` has columns `sample_id`, `subtype`.
 
 - [ ] **Step 1: Add the proxy-decision thresholds to `R/constants.R`:**
   ```r
@@ -7076,7 +7076,7 @@ This phase adds the GSE159115 scRNA-seq increment on a **separate branch** that 
 
 ---
 
-### Task 6.4 — Run ESTIMATE on bulk expression (wiring + guarded smoke test)
+### Task 6.4 - Run ESTIMATE on bulk expression (wiring + guarded smoke test)
 
 **Files:**
 - Modify: `R/functions_purity.R`
@@ -7112,7 +7112,7 @@ This phase adds the GSE159115 scRNA-seq increment on a **separate branch** that 
   })
   ```
 
-- [ ] **Step 2: Run — confirm it SKIPS (or passes if `estimate` is installed locally).**
+- [ ] **Step 2: Run - confirm it SKIPS (or passes if `estimate` is installed locally).**
   ```bash
   Rscript -e 'testthat::test_file("tests/testthat/test-purity.R")'
   ```
@@ -7191,7 +7191,7 @@ This phase adds the GSE159115 scRNA-seq increment on a **separate branch** that 
 
 ---
 
-### Task 6.5 — Wire `purity_bulk` + `purity_check` targets into the DAG
+### Task 6.5 - Wire `purity_bulk` + `purity_check` targets into the DAG
 
 **Files:**
 - Modify: `_targets.R`
@@ -7199,7 +7199,7 @@ This phase adds the GSE159115 scRNA-seq increment on a **separate branch** that 
 
 **Interfaces:**
 - Consumes: `rna_mat`, `subtypes_mofa` (Modules 1–2 targets); `fn_estimate_purity`, `fn_subtype_purity_test` (Tasks 6.3–6.4).
-- Produces: targets `purity_bulk` (data.frame) and `purity_check` (list with `is_purity_proxy`) — consumed by the single-cell mapping target (Task 6.8).
+- Produces: targets `purity_bulk` (data.frame) and `purity_check` (list with `is_purity_proxy`) - consumed by the single-cell mapping target (Task 6.8).
 
 - [ ] **Step 1: Ensure `functions_purity.R` is sourced.** Confirm the `tar_option_set`/source block in `_targets.R` includes it (Module 0 sources `R/functions_*.R` by glob; verify):
   ```bash
@@ -7246,7 +7246,7 @@ This phase adds the GSE159115 scRNA-seq increment on a **separate branch** that 
   ```bash
   Rscript -e 'pc <- targets::tar_read(purity_check); stopifnot(is.list(pc), is.logical(pc$is_purity_proxy), "purity_eta2" %in% names(pc)); cat("is_purity_proxy:", pc$is_purity_proxy, "eta2:", round(pc$purity_eta2, 3), "\n")'
   ```
-  Expected output (example — value depends on the fixture):
+  Expected output (example - value depends on the fixture):
   ```
   is_purity_proxy: TRUE eta2: 0.31
   ```
@@ -7259,7 +7259,7 @@ This phase adds the GSE159115 scRNA-seq increment on a **separate branch** that 
 
 ---
 
-### Task 6.6 — scanpy QC / normalise / cluster (`singlecell_qc.py`, TDD on a synthetic 10x H5)
+### Task 6.6 - scanpy QC / normalise / cluster (`singlecell_qc.py`, TDD on a synthetic 10x H5)
 
 **Files:**
 - Modify: `tests/pytest/conftest.py` (add a deterministic CellRanger-v3 H5 fixture)
@@ -7276,7 +7276,7 @@ This phase adds the GSE159115 scRNA-seq increment on a **separate branch** that 
   - `cluster(adata, n_pcs=int, n_clusters=int, random_state=int) -> AnnData` (writes `obs["cluster"]`)
   - `process_singlecell(path: str) -> AnnData` (full QC→cluster pipeline)
 
-- [ ] **Step 1: Add a valid, deterministic 10x-v3 H5 fixture to `tests/pytest/conftest.py`** (real CellRanger layout that `sc.read_10x_h5` parses — genes×cells CSC):
+- [ ] **Step 1: Add a valid, deterministic 10x-v3 H5 fixture to `tests/pytest/conftest.py`** (real CellRanger layout that `sc.read_10x_h5` parses - genes×cells CSC):
   ```python
   import numpy as np
   import h5py
@@ -7507,17 +7507,17 @@ This phase adds the GSE159115 scRNA-seq increment on a **separate branch** that 
 
 ---
 
-### Task 6.7 — Cell-type annotation + gated bulk→single-cell mapping (`singlecell_annotate.py`, TDD)
+### Task 6.7 - Cell-type annotation + gated bulk→single-cell mapping (`singlecell_annotate.py`, TDD)
 
 **Files:**
 - Create: `python/singlecell_annotate.py`
-- Test: `tests/pytest/test_singlecell_annotate.py` (new file — follows the `test_<module>.py` convention)
+- Test: `tests/pytest/test_singlecell_annotate.py` (new file - follows the `test_<module>.py` convention)
 
 **Interfaces:**
 - Consumes: a clustered/normalised `AnnData` (Task 6.6); bulk subtype signature gene lists; the `purity_confounded` boolean from `purity_check.is_purity_proxy` (Task 6.5).
 - Produces:
   - `annotate_celltypes(adata, marker_sets=dict) -> AnnData` (writes `obs["cell_type"]`)
-  - `map_bulk_signature(adata, signature_sets: dict, purity_confounded: bool) -> dict` with keys `scores_by_celltype`, `purity_confounded`, `interpretation` — the mapping is **re-framed** in `interpretation` when the purity gate failed.
+  - `map_bulk_signature(adata, signature_sets: dict, purity_confounded: bool) -> dict` with keys `scores_by_celltype`, `purity_confounded`, `interpretation` - the mapping is **re-framed** in `interpretation` when the purity gate failed.
 
 - [ ] **Step 1: Write the failing test.** Create `tests/pytest/test_singlecell_annotate.py`:
   ```python
@@ -7672,7 +7672,7 @@ This phase adds the GSE159115 scRNA-seq increment on a **separate branch** that 
 
 ---
 
-### Task 6.8 — Wire `sc_object` + `sc_mapping` targets (reticulate, gated on `purity_check`)
+### Task 6.8 - Wire `sc_object` + `sc_mapping` targets (reticulate, gated on `purity_check`)
 
 **Files:**
 - Modify: `_targets.R`
@@ -7680,7 +7680,7 @@ This phase adds the GSE159115 scRNA-seq increment on a **separate branch** that 
 
 **Interfaces:**
 - Consumes: `config$singlecell` (Task 6.1), `subtypes_df` + `rna_mat` (bulk signatures), `purity_check` (Task 6.5), `process_singlecell` / `load_h5ad` / `annotate_celltypes` / `map_bulk_signature` (Tasks 6.6–6.7) via `reticulate`.
-- Produces: targets `sc_object` (file path to `.h5ad`) and `sc_mapping` (list, saved RDS) — consumed by `dashboard/singlecell.qmd` (Task 6.9).
+- Produces: targets `sc_object` (file path to `.h5ad`) and `sc_mapping` (list, saved RDS) - consumed by `dashboard/singlecell.qmd` (Task 6.9).
 
 - [ ] **Step 1: Add the flag-gated single-cell targets** to `_targets.R`. Read the config once near the top (Module 0 already loads `config`), then append this block to the target list, guarded so CI (flag OFF) never defines the heavy targets:
   ```r
@@ -7728,7 +7728,7 @@ This phase adds the GSE159115 scRNA-seq increment on a **separate branch** that 
       list()
     }
   ```
-  (Note `load_h5ad(sc_object)` re-reads the *processed* `.h5ad` written by the `sc_object` target — `process_singlecell` returns the normalised+clustered object and `write_h5ad` preserves `.X`, so `annotate_celltypes`, which needs normalised data, runs on processed cells. `load_h5ad` wraps `scanpy.read_h5ad`; the 10x-only `load_h5`/`sc.read_10x_h5` reader cannot parse an AnnData `.h5ad`, so it must not be used here.)
+  (Note `load_h5ad(sc_object)` re-reads the *processed* `.h5ad` written by the `sc_object` target - `process_singlecell` returns the normalised+clustered object and `write_h5ad` preserves `.X`, so `annotate_celltypes`, which needs normalised data, runs on processed cells. `load_h5ad` wraps `scanpy.read_h5ad`; the 10x-only `load_h5`/`sc.read_10x_h5` reader cannot parse an AnnData `.h5ad`, so it must not be used here.)
 
 - [ ] **Step 2: Verify the gate: with the flag OFF, the targets are absent (CI behaviour).**
   ```bash
@@ -7777,7 +7777,7 @@ This phase adds the GSE159115 scRNA-seq increment on a **separate branch** that 
 
 ---
 
-### Task 6.9 — Single-cell dashboard page with the purity caveat (`singlecell.qmd`)
+### Task 6.9 - Single-cell dashboard page with the purity caveat (`singlecell.qmd`)
 
 **Files:**
 - Modify: `dashboard/_quarto.yml` (register the page), `dashboard/singlecell.qmd`
@@ -7793,7 +7793,7 @@ This phase adds the GSE159115 scRNA-seq increment on a **separate branch** that 
         file: singlecell.qmd
   ```
 
-- [ ] **Step 2: Write `dashboard/singlecell.qmd`** (renders defensively: if the single-cell targets were not built — the release/CI default — it shows the v1.1 placeholder instead of erroring, so it never blocks the dashboard build):
+- [ ] **Step 2: Write `dashboard/singlecell.qmd`** (renders defensively: if the single-cell targets were not built - the release/CI default - it shows the v1.1 placeholder instead of erroring, so it never blocks the dashboard build):
   ```markdown
   ---
   title: "Single-cell increment (v1.1) — GSE159115"
@@ -7819,8 +7819,8 @@ This phase adds the GSE159115 scRNA-seq increment on a **separate branch** that 
   } else {
     pc <- tar_read(purity_check)
     verdict <- if (isTRUE(pc$is_purity_proxy))
-      "**FAILED** — bulk subtypes ARE a tumour-purity / immune proxy." else
-      "**passed** — bulk subtypes are not explained by purity alone."
+      "**FAILED** - bulk subtypes ARE a tumour-purity / immune proxy." else
+      "**passed** - bulk subtypes are not explained by purity alone."
     cat(sprintf(
       "### Purity confound gate\n\nKruskal-Wallis subtype~purity p = %.3g, eta^2 = %.3f (n = %d): %s\n\n",
       pc$purity_p, pc$purity_eta2, pc$n, verdict))
@@ -7830,7 +7830,7 @@ This phase adds the GSE159115 scRNA-seq increment on a **separate branch** that 
   ```
   ```
 
-- [ ] **Step 3: Render the page from the cached store** (single-page render; with the flag OFF it exercises the placeholder path — the CI/release scenario):
+- [ ] **Step 3: Render the page from the cached store** (single-page render; with the flag OFF it exercises the placeholder path - the CI/release scenario):
   ```bash
   cd "$REPO_ROOT"   # the repo checkout; every command below assumes the repo root
   quarto render dashboard/singlecell.qmd
@@ -7857,4 +7857,4 @@ This phase adds the GSE159115 scRNA-seq increment on a **separate branch** that 
 
 ---
 
-**Phase 6 exit criteria:** the `singlecell` branch holds a self-contained increment — purity confound gate (`purity_check`) built on bulk data, scanpy QC/cluster/annotation on GSE159115, and a mapping that is re-framed whenever the gate fails — all flag-guarded so CI and the frozen release never trigger the GSE download, and nothing here can block release of Modules 0–5. Merge to `main` only after Modules 0–5 have shipped.
+**Phase 6 exit criteria:** the `singlecell` branch holds a self-contained increment - purity confound gate (`purity_check`) built on bulk data, scanpy QC/cluster/annotation on GSE159115, and a mapping that is re-framed whenever the gate fails - all flag-guarded so CI and the frozen release never trigger the GSE download, and nothing here can block release of Modules 0–5. Merge to `main` only after Modules 0–5 have shipped.

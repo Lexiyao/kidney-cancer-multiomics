@@ -1,20 +1,20 @@
-# Design Spec — Reproducible Multi-Omics Pipeline for Kidney Cancer (TCGA-KIRC)
+# Design Spec - Reproducible Multi-Omics Pipeline for Kidney Cancer (TCGA-KIRC)
 
 - **Date:** 2026-07-30
 - **Status:** Design approved. Corrected against an independent feasibility review (2026-07-30),
   then against a **measured cohort census** run on the real snapshot (2026-07-31, GitHub Actions
-  run `30642823359`) — all sample sizes in §2 are now observed, not estimated — and then against a
+  run `30642823359`) - all sample sizes in §2 are now observed, not estimated - and then against a
   **measured survival (OS event) census** on the same snapshot (2026-08-01, GitHub Actions run
   `30708943504`), which also re-verified the cohort census with zero drift and materialised
   Module 1 end-to-end on the real data. **UPDATED 2026-08-12: the survival model
-  HAS since been fitted** — run `31375702141` (2026-08-10, `verify-module2.yml`,
+  HAS since been fitted** - run `31375702141` (2026-08-10, `verify-module2.yml`,
   conclusion success) reports held-out C-index Cox 0.7486 / penalised 0.7492 /
   RSF 0.7524, Cox optimism 0.0125, a 5-bin calibration table and BAP1-from-
   expression AUROC 0.958 CV / 0.960 held-out on n=413 with 36 mutants;
   transcript at `docs/results/module4-run-31375702141.txt`. The superseded
   sentence read "No model has been fitted yet." and is kept here, struck, rather
   than overwritten, in line with this spec's own correction policy.
-- **Author:** Zixi (Lexi) Yao — github.com/Lexiyao
+- **Author:** Zixi (Lexi) Yao - github.com/Lexiyao
 - **Repo:** `kidney-cancer-multiomics`. The rendered site *would* deploy to
   `lexiyao.github.io/kidney-cancer-multiomics`; Pages is `workflow_dispatch`-only
   and has never been dispatched, so that URL is **not live**.
@@ -28,10 +28,10 @@ current CV (germline / statistical-genetics genomics: genetic association, 100k 
 PGS, reproducible R pipelines) and the somatic / functional multi-omics skills required by
 target roles:
 
-- **Cambridge Early Cancer Institute — Mitchell Group RA (RE50394):** kidney-cancer somatic
+- **Cambridge Early Cancer Institute - Mitchell Group RA (RE50394):** kidney-cancer somatic
   multi-omics integration (WGS / transcriptomic / epigenomic / single-cell), reproducible
   pipelines, clear visualisation.
-- **Imperial IGHI — data-analyst-type roles:** public data → regularly updated tool, R + Python,
+- **Imperial IGHI - data-analyst-type roles:** public data → regularly updated tool, R + Python,
   Plotly/Tableau-class visualisation, RAP + version control + environment managers,
   communicating to non-technical audiences.
 - **Kar Lab (cancer genetic epidemiology):** stays on the author's cancer-genomics main line.
@@ -46,7 +46,7 @@ stated openly (see §12) because stating them **is** the maturity signal.
 The same principle applies to this spec's own errors. Its original sample sizes were taken from
 the live GDC portal while the pipeline reads a frozen 2016 snapshot; a measured run replaced them
 (§2). The correction is recorded in place, with the old numbers and the reason they were wrong,
-rather than overwritten — a spec whose numbers can be traced to a run is worth more than one whose
+rather than overwritten - a spec whose numbers can be traced to a run is worth more than one whose
 numbers merely look confident.
 
 ---
@@ -63,25 +63,25 @@ numbers merely look confident.
 | ML + survival / epi (both + author strength) | Module 5 |
 | Data viz (Plotly) + communicate to non-technical (Imperial) | Module 6 |
 | Public data → regularly updated tool (Imperial) | Module 6 live-GDC panel + CI cron (§9) |
-| Publication-quality visualisation (Mitchell) | **NOT BUILT** — figures are interactive HTML; no manuscript-figure export path exists (matches README and dashboard/index.qmd) |
+| Publication-quality visualisation (Mitchell) | **NOT BUILT** - figures are interactive HTML; no manuscript-figure export path exists (matches README and dashboard/index.qmd) |
 
 ---
 
-## 2. Data — corrected sample sizes and access
+## 2. Data - corrected sample sizes and access
 
 Cohort: **TCGA-KIRC** (kidney renal clear cell carcinoma, ccRCC). Access via
-`curatedTCGAData` 2.0.1 (Bioconductor 3.23) — versioned `MultiAssayExperiment`, snapshot
+`curatedTCGAData` 2.0.1 (Bioconductor 3.23) - versioned `MultiAssayExperiment`, snapshot
 `20160128`, hg19 legacy. This is the reproducible choice and is retained.
 
 **The cohort is NOT the full 536 cases for multi-omics.** Complete-case intersection
-(case/patient level, **primary tumours only** — barcode positions 14–15 == `01`, which is what
+(case/patient level, **primary tumours only** - barcode positions 14–15 == `01`, which is what
 the pipeline actually analyses):
 
 | Modality combination | cases |
 |---|---|
 | All cases in `colData` | 536 |
 | RNA-seq (RSEM upper-quartile normalised) | 533 |
-| Methylation (any platform) | 535 — HM450: 319, HM27: 219, overlap: 3 |
+| Methylation (any platform) | 535 - HM450: 319, HM27: 219, overlap: 3 |
 | CNV (GISTIC thresholded, gene-level) | 528 |
 | Somatic mutation (2016 legacy MAF) | 417 |
 | RNA + Methylation(any) + CNV | 524 |
@@ -91,9 +91,9 @@ the pipeline actually analyses):
 **These numbers were measured, not assumed.** They come from a real run of this repo's own
 loading/QC/harmonisation functions (`fn_load_mae`, `fn_qc_mae`, `fn_harmonise_ids`,
 `fn_experiment`) against the actual snapshot inside
-`bioconductor/bioconductor_docker:RELEASE_3_23` — GitHub Actions run `30642823359`, 2026-07-31.
+`bioconductor/bioconductor_docker:RELEASE_3_23` - GitHub Actions run `30642823359`, 2026-07-31.
 
-**Snapshot vs live — why the earlier figures were wrong (worth saying out loud).** The first
+**Snapshot vs live - why the earlier figures were wrong (worth saying out loud).** The first
 version of this spec took its sample sizes from the **current GDC API** (live, harmonised,
 "Masked Somatic Mutation"). But the pipeline consumes the **frozen 2016 `curatedTCGAData`
 snapshot**, and the two genuinely differ: the 2016 legacy MAF covers **more** cases (417) than
@@ -102,26 +102,26 @@ cover **fewer**. Quoting live-portal counts for a frozen-snapshot pipeline is ex
 error this project claims to guard against, so it is recorded here rather than quietly patched.
 Any figure cited in the README or an interview must state **which** of the two it came from.
 
-**Two bottlenecks:** (1) the mutation MAF is the binding constraint — 417 of 536 cases, and only
+**Two bottlenecks:** (1) the mutation MAF is the binding constraint - 417 of 536 cases, and only
 413 survive the four-way intersection; (2) KIRC methylation is split across two nearly
 non-overlapping platforms (HM450 319 / HM27 219). Hard-coding "450k" would silently halve the
 cohort (and, combined with mutation, drops the cohort to 241).
 
-**Decision — main analysis cohort:** `RNA + Methylation(HM27+HM450 merged on common CpGs) + CNV
+**Decision - main analysis cohort:** `RNA + Methylation(HM27+HM450 merged on common CpGs) + CNV
 = 524`. Mutation is **not** a modeling view; it is used as annotation on its `n=417` subset
 (`n=413` within the main cohort), reported with stratification.
 
 **Model-complexity implication (load-bearing):** the survival model runs on the **main cohort
-(n=524)**, not on the mutation subset — an earlier draft of this spec reasoned from `n≈270`, which
+(n=524)**, not on the mutation subset - an earlier draft of this spec reasoned from `n≈270`, which
 was the wrong cohort as well as the wrong number. The OS **event count is now measured**. Of the
 524 main-cohort cases, **522 are usable** for survival (two lack a usable vital-status/time pair),
-carrying **173 OS events — a 33.1% event rate — with median follow-up 1188 days**; restricting to
+carrying **173 OS events - a 33.1% event rate - with median follow-up 1188 days**; restricting to
 5 years (1825 days) gives **148 events**. Against this project's fixed `EPV_CAP = 10` (events per
 variable, unchanged), that licenses **17 predictors** on full follow-up and **14** on the
 5-year-restricted analysis. Event = `vital_status` in {dead, deceased, 1}; time = `days_to_death`
 if event else `days_to_last_followup`. These figures come from the same class of run as the cohort
-census above — this repo's own `fn_load_mae` / `fn_qc_mae` / `fn_harmonise_ids` over
-`colData(mae)` on the frozen snapshot inside `bioconductor/bioconductor_docker:RELEASE_3_23` —
+census above - this repo's own `fn_load_mae` / `fn_qc_mae` / `fn_harmonise_ids` over
+`colData(mae)` on the frozen snapshot inside `bioconductor/bioconductor_docker:RELEASE_3_23` -
 **GitHub Actions run `30708943504`, 2026-08-01**, which also re-verified the cohort census with
 zero drift (524 / 413 / 241).
 
@@ -138,10 +138,10 @@ predictor budget. What is measured here is the cohort and its events.
 > is false now: `R/functions_survival.R` and `R/functions_model_eval.R` exist, and run
 > `31375702141` fitted the model and printed held-out C-index Cox 0.7486 / penalised 0.7492 /
 > RSF 0.7524 with optimism 0.0125. The predictor budget reasoning above is unchanged and was
-> honoured — the fit measured its own EPV cap on the training events (124 events → cap 12) and
+> honoured - the fit measured its own EPV cap on the training events (124 events → cap 12) and
 > spent 5. See §12 and `docs/results/module4-run-31375702141.txt`.
 
-### 2a. RNA-seq object — do not call it `vst`
+### 2a. RNA-seq object - do not call it `vst`
 
 `curatedTCGAData`'s `KIRC_RNASeq2GeneNorm` is TCGA Level-3 **RSEM upper-quartile normalised
 values**, not raw integer counts. `DESeq2::vst` assumes raw counts and is methodologically
@@ -153,11 +153,11 @@ versioned ExperimentHub snapshot.)
 
 ---
 
-## 3. Architecture — modules (orchestrated by `targets`)
+## 3. Architecture - modules (orchestrated by `targets`)
 
 Each module has one purpose and explicit inputs/outputs; each is independently testable.
 
-> **NUMBERING — read before following a cross-reference.** This spec numbers modules **1–7**
+> **NUMBERING - read before following a cross-reference.** This spec numbers modules **1–7**
 > below. `_targets.R`, `README.md` and `docs/architecture.md` number the same work **0–6**, with a
 > Module 0 scaffold. The reader-facing numbering is the 0–6 one; this section is kept as written
 > so existing cross-references still resolve. The map is:
@@ -173,29 +173,29 @@ Each module has one purpose and explicit inputs/outputs; each is independently t
    - Methylation: β → M-values; drop SNP-adjacent and sex-chromosome probes; merge HM27/HM450
      on common CpGs; top-variable CpGs (Gaussian).
    - CNV: GISTIC gene-level thresholded, continuous/ordinal (Gaussian).
-   - Mutation: **excluded as a view** — see §6a.
+   - Mutation: **excluded as a view** - see §6a.
 3. **integrate** (R, **genuinely R+Python**): `MOFA2` 1.22.0 latent factors as the main method;
    `SNFtool` 2.3.1 as a cheap sensitivity analysis. Deliverable: factor matrix,
    variance-explained per omics per factor, subtype assignments, and a **two-method concordance
    check** (MOFA-derived clusters vs SNF clusters). **`iClusterPlus` is cut** (hours-to-days on
    4 omics × 300+ samples, redundant with MOFA2).
-4. **sanity** (R, credibility anchor — built early, see §7): literature positive controls as
+4. **sanity** (R, credibility anchor - built early, see §7): literature positive controls as
    real `testthat` assertions.
 5. **model** (R + Python):
    - Survival (R): low-dimensional Cox / penalised Cox (`glmnet` 5.0) / random survival forest
      (`randomForestSRC` 3.6.2) on factors/subtypes + clinical; **held-out split or nested CV
      with optimism reported** (§6c); C-index + calibration **reusing the author's
      `model-evaluation-from-scratch` code**.
-   - Classifier (Python `scikit-learn`): a **non-circular** supervised task — predict **BAP1
+   - Classifier (Python `scikit-learn`): a **non-circular** supervised task - predict **BAP1
      mutation status** from expression (literature-anchored ccRCC signal; labels from the `n=417`
-     mutation subset — `n=413` where it meets the main cohort — features from expression).
+     mutation subset - `n=413` where it meets the main cohort - features from expression).
      CV AUROC + held-out. This is the R+Python proof
      and avoids the tautology in §6b.
 6. **report + dashboard** (Quarto + Plotly): Quarto site (publication-quality figures) plus an
    interactive dashboard (subtypes, survival curves, factor loadings, gene views) + a **live GDC
    panel** (§9). Deployed to GitHub Pages.
 7. **singlecell** (Python `scanpy`, **v1.1, non-blocking**): GSE159115 (10x H5); QC, clustering,
-   annotation; map bulk subtype signatures onto single-cell programs — **after** a purity/immune
+   annotation; map bulk subtype signatures onto single-cell programs - **after** a purity/immune
    confound check (§10).
 
 **Reproducibility scaffold:** `renv` (R lock) + `targets` (DAG) + `Dockerfile` +
@@ -221,7 +221,7 @@ singlecell (GSE159115) — separate branch, joins dashboard at v1.1
 
 ---
 
-## 5. Reproducibility scaffold — the real build blocker is MOFA2
+## 5. Reproducibility scaffold - the real build blocker is MOFA2
 
 MOFA2 is **not pure R**: `SystemRequirements: Python (>=3), numpy, pandas, h5py, scipy, sklearn,
 mofapy2`, called through `reticulate` + `basilisk`. `basilisk` builds its own conda env, which
@@ -233,7 +233,7 @@ forces basilisk to an external/system env (`basilisk.useSystemDir` / `BASILISK_E
 it never downloads conda inside the container.
 
 Reframing bonus: because MOFA2 is itself R+Python, the "bilingual environment" is **genuinely
-necessary**, not a contrived demo — a stronger story than an artificial R/Python split.
+necessary**, not a contrived demo - a stronger story than an artificial R/Python split.
 
 ---
 
@@ -243,12 +243,12 @@ necessary**, not a contrived demo — a stronger story than an artificial R/Pyth
 mutation frequency (VHL, PBRM1, SETD2, BAP1, MTOR, KDM5C…). A sparse 10–15-column Bernoulli view
 contributes ~nothing and MOFA2's Bernoulli likelihood converges worse than Gaussian. Instead,
 mutation status is an **external label for factor interpretation** ("which factor tracks
-BAP1/PBRM1 status?") — dodges the numerical problem and yields tellable biology. CNV as
+BAP1/PBRM1 status?") - dodges the numerical problem and yields tellable biology. CNV as
 GISTIC-thresholded gene-level (continuous/ordinal) remains a valid view.
 
 **(b) No tautological classifier.** Deriving subtype labels from omics and then predicting them
 from the same omics is circular; high accuracy is guaranteed and proves nothing. Module 5's
-classifier is a **non-circular** target — BAP1 status from expression (§3.5). (Optional future
+classifier is a **non-circular** target - BAP1 status from expression (§3.5). (Optional future
 variant: minimal transferable signature distillation validated on an **external** RCC cohort.)
 
 **(c) Subtype → survival needs held-out.** Computing log-rank p on the same samples that defined
@@ -257,7 +257,7 @@ testing, or nested CV with optimism reported. Better (future): external RCC coho
 
 ---
 
-## 7. Testing — positive controls as the credibility anchor
+## 7. Testing - positive controls as the credibility anchor
 
 Built **early** (Module 4), not at the end. Real `testthat` / `pytest` assertions, not just
 figures:
@@ -270,7 +270,7 @@ figures:
 - ccA / ccB expression-signature separation.
 
 **STATUS AS OF run 31375702141 (2026-08-10), the latest recorded run: the suite has RUN ON REAL
-DATA over FIVE checks — four PASS, one RED.** That run records 24 anchors across three files
+DATA over FIVE checks - four PASS, one RED.** That run records 24 anchors across three files
 (`test-sanity.R` 14, `test-clinical.R` 6, `test-survival.R` 4), 201 assertions passed, 2 failed,
 0 skipped, and an expected-failure ledger reading `expected red : 2 / observed red : 2` with the
 note "the only red anchors are the recorded m1-m4 negative result". Transcript at
@@ -278,26 +278,26 @@ note "the only red anchors are the recorded m1-m4 negative result". Transcript a
 
 **SUPERSEDED, kept for the record.** This block previously read "the suite has now RUN ON REAL
 DATA, and two of the four anchors are red", citing run 30840373033: 11 anchors, 57 assertions
-passed, 4 failed, 0 skipped, over FOUR checks (`subtype_platform` did not exist yet —
+passed, 4 failed, 0 skipped, over FOUR checks (`subtype_platform` did not exist yet -
 `fn_check_subtype_platform` was added in response to run 30911448546, which is later). It also
 claimed "19 anchors across `test-sanity.R` and `test-clinical.R`", a figure no artifact contains.
 Those 30840373033 counts remain accurate *for that run*; transcript at
 `docs/results/phase3-anchors-run-30840373033.txt`, follow-up platform diagnostic (run 30911448546)
 at `docs/results/platform-diagnosis-run-30911448546.txt`.
 
-- **PASS — mutation frequencies.** VHL 44.8%, PBRM1 30.5%, SETD2 10.1%, BAP1 8.6%; all four inside
+- **PASS - mutation frequencies.** VHL 44.8%, PBRM1 30.5%, SETD2 10.1%, BAP1 8.6%; all four inside
   their published ranges on the n=417 mutation subset.
-- **PASS — ccA/ccB.** Anti-correlation rho = −0.354 (p = 6.5e-17), silhouette 0.582, separation
+- **PASS - ccA/ccB.** Anti-correlation rho = −0.354 (p = 6.5e-17), silhouette 0.582, separation
   p = 3.6e-37, full 6+6 marker panels used.
-- **PASS (directionally right, underpowered) — BAP1 survival.** HR = 1.584, 95% CI 0.967–2.595,
+- **PASS (directionally right, underpowered) - BAP1 survival.** HR = 1.584, 95% CI 0.967–2.595,
   p = 0.0677, n = 417. Run 31375702141 records `bap1_survival pass = TRUE`. The DIRECTION the
   literature predicts holds; the significance assertion did not, and the arithmetic in §12 shows
   this cohort could never have supplied it, so that demand was retired as mis-specified while the
   direction requirement stayed unchanged. This entry was listed as RED under run 30840373033, which
   predates the re-specification.
-- **PASS — MOFA subtypes vs assay platform.** Adjusted Rand index 0.0058, p 0.53 (run 31375702141;
+- **PASS - MOFA subtypes vs assay platform.** Adjusted Rand index 0.0058, p 0.53 (run 31375702141;
   the ARI was first measured in run 30911448546). The fifth check, absent from the earlier run.
-- **RED (real negative result) — four clusters in the merged methylation matrix.** Silhouette 0.1197 and Kruskal
+- **RED (real negative result) - four clusters in the merged methylation matrix.** Silhouette 0.1197 and Kruskal
   p = 1.3e-82, but adjusted Rand index against the HM27/HM450 assay split is **0.583** versus a
   0.25 veto. The four "strata" substantially track the platform, not the tumour. The anchor STAYS
   failing; no threshold was moved (§12).
@@ -311,11 +311,11 @@ stays red.
 Unit tests cover deterministic helpers (ID harmonisation, matrix alignment, transforms) on
 subsampled fixtures. Target ~80% coverage on the helper/utility layer; the analysis itself is
 validated by these literature positive controls. **This suite is the single most persuasive part
-of the repo** — and it is persuasive precisely because it is allowed to come back red.
+of the repo** - and it is persuasive precisely because it is allowed to come back red.
 
 ---
 
-## 8. CI scope — stated honestly
+## 8. CI scope - stated honestly
 
 A GitHub Actions standard runner (2 core / 7 GB / 6 h) **cannot** run the full pipeline: HM450 is
 a large HDF5 download (ExperimentHub cache unreliable across runs), and MOFA2 + survival + scanpy
@@ -329,7 +329,7 @@ need real compute.
 
 ---
 
-## 9. The "regularly updated tool" claim — honest resolution
+## 9. The "regularly updated tool" claim - honest resolution
 
 The multi-omics core is a frozen 2016 snapshot; a weekly cron re-running it produces
 byte-identical output. Claiming "public data → regularly updated tool" on frozen data would break
@@ -363,17 +363,17 @@ Even after cutting iClusterPlus and the mutation view, this is a heavy project. 
 ordered so the first six modules form a complete, releasable, tellable project; single-cell is an
 independent increment that cannot block release.
 
-1. **Scaffold** — `renv` + `targets` + Docker, **including the MOFA2 basilisk/reticulate/Docker
+1. **Scaffold** - `renv` + `targets` + Docker, **including the MOFA2 basilisk/reticulate/Docker
    resolution (§5)**, CI hello-world, Quarto → Pages deploy.
-2. **Ingest + preprocess** — RNA + methylation + CNV, `n=524`, correct terminology (no `vst` on
+2. **Ingest + preprocess** - RNA + methylation + CNV, `n=524`, correct terminology (no `vst` on
    RSEM).
-3. **Integrate** — MOFA2 main + SNF sensitivity; mutation as annotation.
-4. **Sanity-check suite** — known ccRCC positive controls as `testthat` assertions (credibility
+3. **Integrate** - MOFA2 main + SNF sensitivity; mutation as annotation.
+4. **Sanity-check suite** - known ccRCC positive controls as `testthat` assertions (credibility
    anchor, deliberately early).
-5. **Model** — survival (low-dim, held-out) + BAP1-status classifier (R+Python); reuse
+5. **Model** - survival (low-dim, held-out) + BAP1-status classifier (R+Python); reuse
    `model-evaluation-from-scratch`.
-6. **Dashboard + README** — skills-mapping table, live GDC panel, honest CI/runtime docs.
-7. **Single-cell** (GSE159115) — **v1.1, non-blocking.**
+6. **Dashboard + README** - skills-mapping table, live GDC panel, honest CI/runtime docs.
+7. **Single-cell** (GSE159115) - **v1.1, non-blocking.**
 
 ---
 
@@ -384,25 +384,25 @@ independent increment that cannot block release.
   instead of the merged methylation platforms. **Events, not n, bound the survival model:** the
   main cohort yields 173 OS events (33.1%, median follow-up 1188 days; 148 within 5 years), so the
   EPV-10 cap is 17 predictors (14 restricted). The model is kept low-dimensional well inside that
-  — 5 predictors wired (`Factor1`, `Factor4`, `age_years`, `stage_num`, `platform`) — and never
+  - 5 predictors wired (`Factor1`, `Factor4`, `age_years`, `stage_num`, `platform`) - and never
   uses genome-wide feature selection (§2). The two factors are chosen OUTCOME-BLIND, on
   platform-cleanliness (BH q > 0.05 against the assay split) and variance explained only; choosing
   them on survival association would bias the model, so it is forbidden.
-- **Methylation platform confound — the largest single limitation, and it is measured, not
+- **Methylation platform confound - the largest single limitation, and it is measured, not
   suspected.** `methyl_mat` is `cbind(HM27, HM450)` on common CpGs with **no batch correction**:
   the 524-case cohort is **HM27 214 / HM450 310**. Run 30911448546 tested every MOFA factor against
   that split (rank-biserial AUC, 0.5 = no platform information, BH-adjusted). **The two largest
   methylation-loaded factors are substantially assay effects: Factor2 AUC 0.888 (q 2.9e-50) and
-  Factor5 0.818 (q 2.0e-34)**, followed by Factor6 0.735 (its recorded p = q = 0 is a defect —
-  impossible at n = 214/310, where the Wilcoxon normal approximation floors at 1.98e-84 — and it
+  Factor5 0.818 (q 2.0e-34)**, followed by Factor6 0.735 (its recorded p = q = 0 is a defect -
+  impossible at n = 214/310, where the Wilcoxon normal approximation floors at 1.98e-84 - and it
   is what depressed the two q values above, printed as 1.4e-50 / 1.3e-34; see the post-hoc
   annotation in `docs/results/platform-diagnosis-run-30911448546.txt`), Factor3 0.658 (q 2.7e-09), and
   Factor9/8/11/14/10/12 all significant. Only **Factor1 (AUC 0.500, q 0.993), Factor4 (0.535,
-  q 0.217), Factor7 (0.532, q 0.243), Factor13 (0.523, q 0.389)** — and marginally Factor15 (0.552,
-  q 0.058) — carry no detectable platform signal. Consequently the m1–m4 positive control is RED:
+  q 0.217), Factor7 (0.532, q 0.243), Factor13 (0.523, q 0.389)** - and marginally Factor15 (0.552,
+  q 0.058) - carry no detectable platform signal. Consequently the m1–m4 positive control is RED:
   adjusted Rand index 0.583 against a 0.25 veto (§7). **The strata are not recovered inside a
   single platform:** within-arm 4-means silhouettes are HM27 0.0858 (n=214, 4658 CpGs) and HM450
-  0.0489 (n=310, 4905 CpGs), both BELOW the merged 0.1197 — the merge manufactures the apparent
+  0.0489 (n=310, 4905 CpGs), both BELOW the merged 0.1197 - the merge manufactures the apparent
   structure rather than diluting real structure. **No batch correction was applied and none will
   be:** only 3 cases overlap the two platforms and the probe sets differ, so a ComBat-style
   correction could be neither validated nor trusted not to erase biology along with batch. The
@@ -415,10 +415,10 @@ independent increment that cannot block release.
   not platform-confounded. The mutation-frequency and ccA/ccB anchors touch no methylation matrix
   at all.
 - **BAP1 survival is underpowered by construction, and the anchor demanded what the cohort cannot
-  give.** Observed HR = 1.584 (95% CI 0.967–2.595, p = 0.0677, n = 417) — right direction, not
+  give.** Observed HR = 1.584 (95% CI 0.967–2.595, p = 0.0677, n = 417) - right direction, not
   significant. Schoenfeld: with ln HR = 0.460 and a mutant fraction of 8.63% (36/417,
   p₁·p₂ = 0.0789), 80% power at two-sided 0.05 needs (1.960 + 0.842)² / (0.0789 × 0.460²) ≈ **470
-  events**. The mutation subset supplies **147 events, 18 of them in the mutant arm** — about
+  events**. The mutation subset supplies **147 events, 18 of them in the mutant arm** - about
   **3.2×** short of the requirement.
   ✅ **RECORDED, not derived.** Run `31375702141` (`verify-module2.yml` LEVEL 3) prints
   `n_events = 147`, `n_mutant = 36`, `n_events_mutant = 18`, `events_required = 470.4`,
@@ -429,14 +429,14 @@ independent increment that cannot block release.
   gives d₁ ≈ 18, not 12. So the
   significance requirement, not the data, was mis-specified; the HR > 1 direction requirement
   stands unchanged. Report BAP1 as directionally consistent with the literature and underpowered
-  here — never as a negative finding, and never as a confirmation.
+  here - never as a negative finding, and never as a confirmation.
 - **Measured ≠ fitted.** What has been run on the real snapshot is the cohort census, the OS event
-  census, and Module 1 (ingest/preprocess) end-to-end — `cohort_n = 524`, `rna_mat` 5000 × 524,
+  census, and Module 1 (ingest/preprocess) end-to-end - `cohort_n = 524`, `rna_mat` 5000 × 524,
   `methyl_mat` 5000 × 524, `cnv_mat` 24776 × 524, `mut_annot` 417 × 7 (`sample_id` character, six
   0/1 integer gene columns: VHL, PBRM1, SETD2, BAP1, MTOR, KDM5C), so the canonical `mut_annot`
   contract now holds on real data, not only on synthetic fixtures. MOFA2 integration has since run
   too (15 factors on n=524, run 30718392588) and the positive-control suite has run on its output
-  (run 30840373033), so factor, subtype and anchor results ARE now claimed — with the platform
+  (run 30840373033), so factor, subtype and anchor results ARE now claimed - with the platform
   caveats above attached to every methylation-loaded one.
 
   ✅ **AND THE MODEL HAS SINCE BEEN FITTED (2026-08-10, run `31375702141`).** This bullet
@@ -452,15 +452,15 @@ independent increment that cannot block release.
   Transcript: `docs/results/module4-run-31375702141.txt`.
 
   **Both caveats travel with those figures.** In the fitted Cox model only `stage_num`
-  (p = 9.6e-17) and `age_years` (p = 9.7e-06) reach significance — `Factor1` HR 0.982 (p = 0.60)
-  and `Factor4` HR 0.966 (p = 0.24) do not — so a C-index of 0.75 is a **stage-and-age** model and
+  (p = 9.6e-17) and `age_years` (p = 9.7e-06) reach significance - `Factor1` HR 0.982 (p = 0.60)
+  and `Factor4` HR 0.966 (p = 0.24) do not - so a C-index of 0.75 is a **stage-and-age** model and
   the multi-omics factors add nothing detectable on this cohort. And because MOFA is fitted on all
   524 cases and the 5000-gene variance filter spans all samples before either split, the held-out
   figures are **unsupervised-transductive**, not fully out-of-sample; the recorded optimism bounds
   the supervised component only.
 - **Frozen 2016 / hg19 snapshot**; genuine live-update is limited to the GDC statistics panel.
   Sample counts from the frozen snapshot **do not match** the current GDC portal in either
-  direction (mutation covers more cases, CNV and HM450 fewer — see §2), so every quoted n must
+  direction (mutation covers more cases, CNV and HM450 fewer - see §2), so every quoted n must
   say which source it came from.
 - **Subtype → survival optimism** is controlled by held-out / nested CV, not (yet) by an external
   cohort.

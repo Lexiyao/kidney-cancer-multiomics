@@ -31,7 +31,7 @@ byte-for-byte. The only live-updating numbers in the project are on the
 ## What is being fitted
 
 A deliberately **low-dimensional** overall-survival model:
-`Factor1`, `Factor4`, `age_years`, `stage_num`, `platform`. Five terms — well
+`Factor1`, `Factor4`, `age_years`, `stage_num`, `platform`. Five terms - well
 inside the EPV-10 budget the observed event count licenses, and never
 genome-wide feature selection.
 
@@ -92,7 +92,7 @@ if (is.null(km_src)) {
 ## Model evaluation (reused model-evaluation-from-scratch)
 
 The **held-out** C-index is the number to read. The **optimism** column beside
-it — apparent (training) minus held-out — is *reported, not subtracted away*:
+it - apparent (training) minus held-out - is *reported, not subtracted away*:
 the factors and subtypes were derived from the same omics the model is fitted
 on, so the apparent figure is optimistic by construction and the size of that
 gap is itself the finding. Only the Cox arm has an optimism estimate; the other
@@ -126,8 +126,8 @@ if (is.null(survival_metrics)) {
 ::: {.provenance .provenance-frozen}
 [Caveat]{.provenance-label} **The held-out C-index is not fully out-of-sample
 either, and that is stated here rather than in a footnote.** `mofa_factors` was
-fitted by MOFA2 on **all 524 cases** — the same rows the train/test split later
-calls TEST — so the latent axes the model is built on were defined with the
+fitted by MOFA2 on **all 524 cases** - the same rows the train/test split later
+calls TEST - so the latent axes the model is built on were defined with the
 held-out rows contributing. MOFA never sees an outcome, so this is **not a label
 leak** and the non-circularity claim stands; it is **unsupervised-transductive
 optimism**. The figure above therefore bounds the **supervised component only**.
@@ -164,16 +164,16 @@ if (is.null(survival_metrics) || is.null(survival_metrics$calibration)) {
 
 ::: {.dashboard-note}
 **Limitations, stated on the page that would otherwise oversell.** Effective *n*
-is set by modality intersection — 524 for the main RNA + Methylation + CNV
+is set by modality intersection - 524 for the main RNA + Methylation + CNV
 cohort, 413 once mutation annotation is required, 241 if HM450 is demanded
 instead of the merged platforms; survival runs on the main cohort, with **519 of
-the 524 cases reaching the fit** (171 OS events, 32.9 %) — the same 519 the
+the 524 cases reaching the fit** (171 OS events, 32.9 %) - the same 519 the
 train 364 / held-out 155 split in the table above sums to.
 **Events, not *n*, bound the model**, which is why it stays at five terms under
 the EPV-10 rule. The BAP1 survival positive control is *directionally*
 consistent with the literature (HR 1.584, 95% CI 0.967–2.595, *p* = 0.068) but
-**underpowered by construction** — roughly 470 events would be needed for 80%
+**underpowered by construction** - roughly 470 events would be needed for 80%
 power, and the mutation subset records **147, 18 of them in the mutant arm**
-(run 31375702141), about 3.2× short — so it is reported as neither a
+(run 31375702141), about 3.2× short - so it is reported as neither a
 confirmation nor a negative finding. Full limitations in the README.
 :::
